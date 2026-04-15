@@ -26,6 +26,7 @@ import UserManagement from './pages/UserManagement';
 import NumberTranslation from './pages/NumberTranslation';
 import IpManagement from './pages/IpManagement';
 import Campaigns from './pages/Campaigns';
+import VoipPlatform from './pages/VoipPlatform';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -35,7 +36,7 @@ const AuthenticatedApp = () => {
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-          <p className="text-sm text-muted-foreground">Loading SMS Gateway...</p>
+          <p className="text-sm text-muted-foreground">Loading Net2app...</p>
         </div>
       </div>
     );
@@ -72,6 +73,7 @@ const AuthenticatedApp = () => {
         <Route path="/translation" element={<NumberTranslation />} />
         <Route path="/ip-management" element={<IpManagement />} />
         <Route path="/campaigns" element={<Campaigns />} />
+        <Route path="/voip" element={<VoipPlatform />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

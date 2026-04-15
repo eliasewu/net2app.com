@@ -3,36 +3,47 @@
   "type": "object",
   "properties": {
     "name": {
+      "type": "string"
+    },
+    "category": {
       "type": "string",
-      "description": "Supplier name"
+      "enum": [
+        "sms",
+        "voice_otp",
+        "whatsapp",
+        "telegram"
+      ],
+      "default": "sms"
+    },
+    "provider_type": {
+      "type": "string",
+      "description": "e.g. Nexmo, Twilio, Infobip, Borno API"
     },
     "contact_person": {
-      "type": "string",
-      "description": "Contact person"
+      "type": "string"
     },
     "email": {
-      "type": "string",
-      "description": "Supplier email"
+      "type": "string"
     },
     "phone": {
-      "type": "string",
-      "description": "Supplier phone"
+      "type": "string"
     },
     "connection_type": {
       "type": "string",
       "enum": [
+        "HTTP",
         "SMPP",
-        "HTTP"
+        "SIP",
+        "SDK"
       ],
-      "description": "Connection type"
+      "default": "HTTP"
     },
     "smpp_ip": {
-      "type": "string",
-      "description": "SMPP server IP"
+      "type": "string"
     },
     "smpp_port": {
       "type": "number",
-      "description": "SMPP port"
+      "default": 2775
     },
     "smpp_username": {
       "type": "string"
@@ -41,23 +52,46 @@
       "type": "string"
     },
     "http_url": {
-      "type": "string",
-      "description": "HTTP submission URL"
+      "type": "string"
     },
     "http_method": {
       "type": "string",
       "enum": [
         "GET",
         "POST"
-      ]
+      ],
+      "default": "POST"
     },
     "http_params": {
-      "type": "string",
-      "description": "HTTP parameters template JSON"
+      "type": "string"
     },
     "dlr_url": {
-      "type": "string",
-      "description": "DLR URL"
+      "type": "string"
+    },
+    "api_key": {
+      "type": "string"
+    },
+    "api_secret": {
+      "type": "string"
+    },
+    "account_sid": {
+      "type": "string"
+    },
+    "auth_token": {
+      "type": "string"
+    },
+    "sip_server": {
+      "type": "string"
+    },
+    "sip_port": {
+      "type": "number",
+      "default": 5060
+    },
+    "sip_username": {
+      "type": "string"
+    },
+    "sip_password": {
+      "type": "string"
     },
     "status": {
       "type": "string",
@@ -70,19 +104,17 @@
     },
     "priority": {
       "type": "number",
-      "default": 1,
-      "description": "Routing priority (1=highest)"
+      "default": 1
     },
     "tps_limit": {
-      "type": "number"
+      "type": "number",
+      "default": 100
     },
     "notes": {
       "type": "string"
     }
   },
   "required": [
-    "name",
-    "email",
-    "connection_type"
+    "name"
   ]
 }

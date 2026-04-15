@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Building2, Route, DollarSign,
   MessageSquare, BarChart3, FileText, Settings, Shield,
   Phone, Bell, FileCode, Monitor, ChevronLeft, ChevronRight,
-  Radio, Zap, ArrowRightLeft, ShieldCheck, Megaphone
+  Radio, Zap, ArrowRightLeft, ShieldCheck, Megaphone, Server
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -20,12 +20,13 @@ const navItems = [
   { label: "IP Mgmt", icon: ShieldCheck, path: "/ip-management" },
   { label: "SMS Logs", icon: MessageSquare, path: "/sms-logs" },
   { label: "Voice OTP", icon: Phone, path: "/voice-otp" },
-  { label: "Campaigns", icon: Megaphone, path: "/campaigns" },
+  { label: "VoIP Platform", icon: Server, path: "/voip" },
   { label: "Content", icon: FileCode, path: "/content" },
   { label: "Reports", icon: BarChart3, path: "/reports" },
   { label: "Invoices", icon: FileText, path: "/invoices" },
   { label: "Notifications", icon: Bell, path: "/notifications" },
   { label: "Test SMS", icon: Zap, path: "/test-sms" },
+  { label: "Campaigns", icon: Megaphone, path: "/campaigns" },
   { label: "Settings", icon: Settings, path: "/settings" },
   { label: "User Mgmt", icon: Shield, path: "/users" },
 ];
@@ -42,11 +43,20 @@ export default function Sidebar() {
       <div className="flex items-center justify-between px-4 h-16 border-b border-sidebar-border">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
-              <MessageSquare className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-bold text-lg tracking-tight">SMS Gateway</span>
+            <img
+              src="https://media.base44.com/images/public/69dff8a678c51b2913488cf3/a12e503e8_net2app.png"
+              alt="Net2app"
+              className="w-7 h-7 rounded-md object-contain"
+            />
+            <span className="font-bold text-lg tracking-tight">Net2app</span>
           </div>
+        )}
+        {collapsed && (
+          <img
+            src="https://media.base44.com/images/public/69dff8a678c51b2913488cf3/a12e503e8_net2app.png"
+            alt="Net2app"
+            className="w-7 h-7 rounded-md object-contain mx-auto"
+          />
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -71,7 +81,7 @@ export default function Sidebar() {
               )}
               title={collapsed ? item.label : undefined}
             >
-              <item.icon className="w-4.5 h-4.5 shrink-0" />
+              <item.icon className="w-4 h-4 shrink-0" />
               {!collapsed && <span>{item.label}</span>}
             </Link>
           );
@@ -82,7 +92,7 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="flex items-center gap-2 px-2">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs text-sidebar-foreground/60">System Online</span>
+            <span className="text-xs text-sidebar-foreground/60">www.net2app.com</span>
           </div>
         )}
       </div>

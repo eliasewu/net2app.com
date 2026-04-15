@@ -1,0 +1,55 @@
+{
+  "name": "VoipPlatform",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Platform name"
+    },
+    "platform_type": {
+      "type": "string",
+      "enum": [
+        "asterisk",
+        "freeswitch",
+        "sip"
+      ],
+      "default": "asterisk"
+    },
+    "sip_server": {
+      "type": "string",
+      "description": "SIP server IP or hostname"
+    },
+    "sip_port": {
+      "type": "number",
+      "default": 5060
+    },
+    "sip_username": {
+      "type": "string"
+    },
+    "sip_password": {
+      "type": "string"
+    },
+    "require_auth": {
+      "type": "boolean",
+      "default": false
+    },
+    "description": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "sip_server"
+  ]
+}
