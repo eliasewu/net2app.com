@@ -1,0 +1,49 @@
+{
+  "name": "VoiceAudioFile",
+  "type": "object",
+  "properties": {
+    "folder_id": {
+      "type": "string"
+    },
+    "folder_name": {
+      "type": "string"
+    },
+    "character": {
+      "type": "string",
+      "description": "0-9, a-z, greeting, intro, otp_prompt"
+    },
+    "label": {
+      "type": "string",
+      "description": "Display label"
+    },
+    "file_url": {
+      "type": "string",
+      "description": "Uploaded audio file URL"
+    },
+    "file_type": {
+      "type": "string",
+      "enum": [
+        "mp3",
+        "wav",
+        "ogg"
+      ],
+      "default": "mp3"
+    },
+    "duration_ms": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "folder_id",
+    "character",
+    "file_url"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "name": "VoiceAudioFolder",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Folder name e.g. English, Bengali, Arabic"
+    },
+    "language_code": {
+      "type": "string",
+      "description": "ISO language code e.g. en, bn, ar"
+    },
+    "country": {
+      "type": "string"
+    },
+    "is_default_english": {
+      "type": "boolean",
+      "default": false
+    },
+    "description": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "name",
+    "language_code"
+  ]
+}

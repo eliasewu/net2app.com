@@ -33,7 +33,17 @@ export default function Rates() {
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: () => base44.entities.Client.list(), initialData: [] });
   const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: () => base44.entities.Supplier.list(), initialData: [] });
 
-  const createMut = useMutation({ mutationFn: (d) => base44.entities.Rate.create(d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["rates"] }); toast.success("Rate added"); } });
+  const createMut = useMutation({
+    mutationFn: async (d) => {
+      // Auto-deactivate old rate for same entity+mcc+mnc
+      const existing = rates.filter(r => r.type === d.type && r.entity_id === d.entity_id && r.mcc === d.mcc && r.mnc === d.mnc && r.status === "active");
+      for (const old of existing) {
+        await base44.entities.Rate.update(old.id, { status: "inactive" });
+      }
+      return base44.entities.Rate.create({ ...d, status: d.active_from ? "scheduled" : "active", version: (existing[0]?.version || 0) + 1 });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rates"] }); toast.success(form.active_from ? "Rate scheduled — old rate deactivated" : "Rate added"); }
+  });
   const updateMut = useMutation({ mutationFn: ({ id, data }) => base44.entities.Rate.update(id, data), onSuccess: () => { qc.invalidateQueries({ queryKey: ["rates"] }); toast.success("Updated"); } });
   const deleteMut = useMutation({ mutationFn: (id) => base44.entities.Rate.delete(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ["rates"] }); toast.success("Deleted"); } });
 
@@ -290,6 +300,14 @@ export default function Rates() {
                 <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+            <p className="text-xs font-semibold text-blue-800">⏰ Schedule (optional — leave blank for immediate activation)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1"><Label className="text-xs">Active From</Label><Input type="datetime-local" value={form.active_from || ""} onChange={e => set("active_from", e.target.value)} /></div>
+              <div className="space-y-1"><Label className="text-xs">Active Until</Label><Input type="datetime-local" value={form.active_until || ""} onChange={e => set("active_until", e.target.value)} /></div>
+            </div>
+            <p className="text-xs text-amber-700">⚠️ When saved, any existing active rate for the same MCC/MNC will be automatically deactivated.</p>
           </div>
           <div className="p-3 bg-muted/40 rounded text-xs text-muted-foreground">
             {form._bulk ? `Will create ${form._bulk.length} rates for selected destinations` : `Destination: ${form.country || "—"} / ${form.network || "—"}`}

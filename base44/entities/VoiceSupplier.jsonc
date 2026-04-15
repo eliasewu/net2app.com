@@ -1,0 +1,76 @@
+{
+  "name": "VoiceSupplier",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "sip_host": {
+      "type": "string"
+    },
+    "sip_port": {
+      "type": "number",
+      "default": 5060
+    },
+    "sip_username": {
+      "type": "string"
+    },
+    "sip_password": {
+      "type": "string"
+    },
+    "caller_id": {
+      "type": "string"
+    },
+    "primary_language_folder_id": {
+      "type": "string",
+      "description": "Local language audio folder"
+    },
+    "secondary_language_folder_id": {
+      "type": "string",
+      "description": "English fallback folder"
+    },
+    "play_count": {
+      "type": "number",
+      "default": 2,
+      "description": "How many times to play OTP"
+    },
+    "greeting_file_url": {
+      "type": "string"
+    },
+    "mcc": {
+      "type": "string"
+    },
+    "mnc": {
+      "type": "string"
+    },
+    "country": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "tps_limit": {
+      "type": "number",
+      "default": 10
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "blocked"
+      ],
+      "default": "active"
+    },
+    "priority": {
+      "type": "number",
+      "default": 1
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

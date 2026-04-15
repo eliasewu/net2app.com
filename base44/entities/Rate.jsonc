@@ -6,25 +6,22 @@
       "type": "string",
       "enum": [
         "client",
-        "supplier"
+        "supplier",
+        "voice"
       ],
       "description": "Rate type"
     },
     "entity_id": {
-      "type": "string",
-      "description": "Client or Supplier ID"
+      "type": "string"
     },
     "entity_name": {
-      "type": "string",
-      "description": "Client or Supplier name"
+      "type": "string"
     },
     "mcc": {
-      "type": "string",
-      "description": "Mobile Country Code"
+      "type": "string"
     },
     "mnc": {
-      "type": "string",
-      "description": "Mobile Network Code"
+      "type": "string"
     },
     "country": {
       "type": "string"
@@ -33,12 +30,10 @@
       "type": "string"
     },
     "prefix": {
-      "type": "string",
-      "description": "Destination prefix"
+      "type": "string"
     },
     "rate": {
-      "type": "number",
-      "description": "Rate per SMS"
+      "type": "number"
     },
     "currency": {
       "type": "string",
@@ -56,9 +51,28 @@
       "type": "string",
       "enum": [
         "active",
-        "inactive"
+        "inactive",
+        "scheduled"
       ],
       "default": "active"
+    },
+    "active_from": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Schedule activation date/time"
+    },
+    "active_until": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Schedule deactivation date/time"
+    },
+    "superseded_by": {
+      "type": "string",
+      "description": "ID of the new rate that replaced this one"
+    },
+    "version": {
+      "type": "number",
+      "default": 1
     }
   },
   "required": [
