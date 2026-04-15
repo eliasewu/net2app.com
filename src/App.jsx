@@ -5,43 +5,74 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
-// Add page imports here
+
+import AppLayout from './components/layout/AppLayout';
+import Dashboard from './pages/Dashboard';
+import Monitoring from './pages/Monitoring';
+import Clients from './pages/Clients';
+import Suppliers from './pages/Suppliers';
+import RoutesPage from './pages/Routes';
+import Rates from './pages/Rates';
+import MccMncPage from './pages/MccMnc';
+import SmsLogs from './pages/SmsLogs';
+import VoiceOtpPage from './pages/VoiceOtp';
+import ContentTemplates from './pages/ContentTemplates';
+import Reports from './pages/Reports';
+import Invoices from './pages/Invoices';
+import Notifications from './pages/Notifications';
+import TestSms from './pages/TestSms';
+import Settings from './pages/Settings';
+import UserManagement from './pages/UserManagement';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
 
-  // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      <div className="fixed inset-0 flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+          <p className="text-sm text-muted-foreground">Loading SMS Gateway...</p>
+        </div>
       </div>
     );
   }
 
-  // Handle authentication errors
   if (authError) {
     if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
     } else if (authError.type === 'auth_required') {
-      // Redirect to login automatically
       navigateToLogin();
       return null;
     }
   }
 
-  // Render the main app
   return (
     <Routes>
-      {/* Add your page Route elements here */}
+      <Route element={<AppLayout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/monitoring" element={<Monitoring />} />
+        <Route path="/clients" element={<Clients />} />
+        <Route path="/suppliers" element={<Suppliers />} />
+        <Route path="/routes" element={<RoutesPage />} />
+        <Route path="/rates" element={<Rates />} />
+        <Route path="/mccmnc" element={<MccMncPage />} />
+        <Route path="/sms-logs" element={<SmsLogs />} />
+        <Route path="/voice-otp" element={<VoiceOtpPage />} />
+        <Route path="/content" element={<ContentTemplates />} />
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/invoices" element={<Invoices />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/test-sms" element={<TestSms />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/users" element={<UserManagement />} />
+      </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
 };
 
-
 function App() {
-
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>

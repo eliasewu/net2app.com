@@ -1,0 +1,62 @@
+{
+  "name": "VoiceOtp",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "destination": {
+      "type": "string",
+      "description": "Phone number"
+    },
+    "otp_code": {
+      "type": "string",
+      "description": "OTP code to deliver"
+    },
+    "otp_type": {
+      "type": "string",
+      "enum": [
+        "alpha",
+        "numeric"
+      ],
+      "default": "numeric"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "ringing",
+        "connected",
+        "delivered",
+        "undelivered",
+        "busy",
+        "no_answer",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "retry_count": {
+      "type": "number",
+      "default": 0
+    },
+    "max_retries": {
+      "type": "number",
+      "default": 2
+    },
+    "sip_call_id": {
+      "type": "string"
+    },
+    "duration": {
+      "type": "number",
+      "description": "Call duration in seconds"
+    }
+  },
+  "required": [
+    "client_id",
+    "destination",
+    "otp_code"
+  ]
+}

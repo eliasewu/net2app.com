@@ -1,0 +1,33 @@
+{
+  "name": "SystemSettings",
+  "type": "object",
+  "properties": {
+    "setting_key": {
+      "type": "string",
+      "description": "Setting identifier"
+    },
+    "setting_value": {
+      "type": "string",
+      "description": "Setting value"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "smtp",
+        "telegram",
+        "notification",
+        "backup",
+        "system",
+        "kannel"
+      ],
+      "default": "system"
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "setting_key",
+    "setting_value"
+  ]
+}

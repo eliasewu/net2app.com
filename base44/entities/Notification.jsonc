@@ -1,0 +1,56 @@
+{
+  "name": "Notification",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "sms_fail",
+        "route_blocked",
+        "client_offline",
+        "supplier_offline",
+        "system_alert",
+        "backup",
+        "login"
+      ],
+      "description": "Notification type"
+    },
+    "title": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ],
+      "default": "info"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "email",
+        "telegram",
+        "both"
+      ],
+      "default": "email"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false
+    },
+    "target_user": {
+      "type": "string",
+      "description": "Target admin email"
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "message"
+  ]
+}

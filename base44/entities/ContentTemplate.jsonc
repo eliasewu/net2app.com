@@ -1,0 +1,40 @@
+{
+  "name": "ContentTemplate",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "destination_prefix": {
+      "type": "string",
+      "description": "Destination prefix for matching"
+    },
+    "contents": {
+      "type": "string",
+      "description": "JSON array of random content strings"
+    },
+    "sender_ids": {
+      "type": "string",
+      "description": "JSON array of sender IDs to rotate"
+    },
+    "is_random": {
+      "type": "boolean",
+      "default": true
+    },
+    "client_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "name",
+    "destination_prefix"
+  ]
+}

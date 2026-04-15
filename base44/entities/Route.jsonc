@@ -1,0 +1,86 @@
+{
+  "name": "Route",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Route name"
+    },
+    "client_id": {
+      "type": "string",
+      "description": "Client ID"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "Primary supplier ID"
+    },
+    "supplier_name": {
+      "type": "string"
+    },
+    "backup_supplier_id": {
+      "type": "string",
+      "description": "Backup supplier ID"
+    },
+    "backup_supplier_name": {
+      "type": "string"
+    },
+    "mcc": {
+      "type": "string"
+    },
+    "mnc": {
+      "type": "string"
+    },
+    "country": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "prefix": {
+      "type": "string",
+      "description": "Destination prefix"
+    },
+    "routing_mode": {
+      "type": "string",
+      "enum": [
+        "LCR",
+        "ASR",
+        "Priority",
+        "Round Robin"
+      ],
+      "default": "Priority"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "blocked"
+      ],
+      "default": "active"
+    },
+    "fail_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Consecutive fail count"
+    },
+    "auto_block_threshold": {
+      "type": "number",
+      "default": 10,
+      "description": "Auto block after N consecutive fails"
+    },
+    "is_auto_blocked": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "name",
+    "client_id",
+    "supplier_id",
+    "mcc"
+  ]
+}

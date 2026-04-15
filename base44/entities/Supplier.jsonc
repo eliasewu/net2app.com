@@ -1,0 +1,88 @@
+{
+  "name": "Supplier",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Supplier name"
+    },
+    "contact_person": {
+      "type": "string",
+      "description": "Contact person"
+    },
+    "email": {
+      "type": "string",
+      "description": "Supplier email"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Supplier phone"
+    },
+    "connection_type": {
+      "type": "string",
+      "enum": [
+        "SMPP",
+        "HTTP"
+      ],
+      "description": "Connection type"
+    },
+    "smpp_ip": {
+      "type": "string",
+      "description": "SMPP server IP"
+    },
+    "smpp_port": {
+      "type": "number",
+      "description": "SMPP port"
+    },
+    "smpp_username": {
+      "type": "string"
+    },
+    "smpp_password": {
+      "type": "string"
+    },
+    "http_url": {
+      "type": "string",
+      "description": "HTTP submission URL"
+    },
+    "http_method": {
+      "type": "string",
+      "enum": [
+        "GET",
+        "POST"
+      ]
+    },
+    "http_params": {
+      "type": "string",
+      "description": "HTTP parameters template JSON"
+    },
+    "dlr_url": {
+      "type": "string",
+      "description": "DLR URL"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "blocked"
+      ],
+      "default": "active"
+    },
+    "priority": {
+      "type": "number",
+      "default": 1,
+      "description": "Routing priority (1=highest)"
+    },
+    "tps_limit": {
+      "type": "number"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "email",
+    "connection_type"
+  ]
+}

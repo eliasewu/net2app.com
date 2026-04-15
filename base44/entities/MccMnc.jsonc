@@ -1,0 +1,34 @@
+{
+  "name": "MccMnc",
+  "type": "object",
+  "properties": {
+    "mcc": {
+      "type": "string",
+      "description": "Mobile Country Code"
+    },
+    "mnc": {
+      "type": "string",
+      "description": "Mobile Network Code"
+    },
+    "country": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "prefix": {
+      "type": "string",
+      "description": "Number prefix"
+    },
+    "iso": {
+      "type": "string",
+      "description": "Country ISO code"
+    }
+  },
+  "required": [
+    "mcc",
+    "mnc",
+    "country",
+    "network"
+  ]
+}

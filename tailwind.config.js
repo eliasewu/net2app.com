@@ -9,6 +9,9 @@ module.exports = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		fontFamily: {
+  			inter: ['var(--font-inter)']
+  		},
   		colors: {
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
@@ -85,5 +88,12 @@ module.exports = {
   		}
   	}
   },
+  safelist: [
+    'bg-green-500', 'bg-red-500', 'bg-yellow-500', 'bg-blue-500', 'bg-gray-500',
+    'text-green-500', 'text-red-500', 'text-yellow-500', 'text-blue-500',
+    'bg-green-50', 'bg-red-50', 'bg-yellow-50', 'bg-blue-50',
+    'text-green-700', 'text-red-700', 'text-yellow-700', 'text-blue-700',
+    'border-green-200', 'border-red-200', 'border-yellow-200', 'border-blue-200',
+  ],
   plugins: [require("tailwindcss-animate")],
 }

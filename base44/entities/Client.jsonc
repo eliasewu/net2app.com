@@ -1,0 +1,115 @@
+{
+  "name": "Client",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Client company name"
+    },
+    "contact_person": {
+      "type": "string",
+      "description": "Contact person name"
+    },
+    "email": {
+      "type": "string",
+      "description": "Client email"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Client phone"
+    },
+    "connection_type": {
+      "type": "string",
+      "enum": [
+        "SMPP",
+        "HTTP"
+      ],
+      "description": "Connection type"
+    },
+    "smpp_ip": {
+      "type": "string",
+      "description": "SMPP IP address"
+    },
+    "smpp_port": {
+      "type": "number",
+      "description": "SMPP port"
+    },
+    "smpp_username": {
+      "type": "string",
+      "description": "SMPP username"
+    },
+    "smpp_password": {
+      "type": "string",
+      "description": "SMPP password"
+    },
+    "http_url": {
+      "type": "string",
+      "description": "HTTP API URL"
+    },
+    "http_method": {
+      "type": "string",
+      "enum": [
+        "GET",
+        "POST"
+      ],
+      "description": "HTTP method"
+    },
+    "http_params": {
+      "type": "string",
+      "description": "HTTP parameters template JSON"
+    },
+    "dlr_url": {
+      "type": "string",
+      "description": "DLR callback URL"
+    },
+    "query_url": {
+      "type": "string",
+      "description": "Query status URL"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "blocked"
+      ],
+      "default": "active"
+    },
+    "credit_limit": {
+      "type": "number",
+      "description": "Credit limit amount"
+    },
+    "currency": {
+      "type": "string",
+      "enum": [
+        "USD",
+        "EUR",
+        "GBP",
+        "INR",
+        "AED",
+        "BDT"
+      ],
+      "default": "USD"
+    },
+    "balance": {
+      "type": "number",
+      "default": 0
+    },
+    "tps_limit": {
+      "type": "number",
+      "description": "Transactions per second limit"
+    },
+    "allowed_senders": {
+      "type": "string",
+      "description": "Comma-separated allowed sender IDs"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "email",
+    "connection_type"
+  ]
+}

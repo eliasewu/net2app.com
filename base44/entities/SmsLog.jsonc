@@ -1,0 +1,102 @@
+{
+  "name": "SmsLog",
+  "type": "object",
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "description": "Internal message ID"
+    },
+    "client_id": {
+      "type": "string"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "supplier_id": {
+      "type": "string"
+    },
+    "supplier_name": {
+      "type": "string"
+    },
+    "route_id": {
+      "type": "string"
+    },
+    "sender_id": {
+      "type": "string",
+      "description": "Sender ID / SID"
+    },
+    "destination": {
+      "type": "string",
+      "description": "Destination number"
+    },
+    "mcc": {
+      "type": "string"
+    },
+    "mnc": {
+      "type": "string"
+    },
+    "country": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string",
+      "description": "SMS content"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "sent",
+        "delivered",
+        "failed",
+        "rejected",
+        "blocked"
+      ],
+      "default": "pending"
+    },
+    "fail_reason": {
+      "type": "string"
+    },
+    "dest_message_id": {
+      "type": "string",
+      "description": "Destination/supplier message ID"
+    },
+    "submit_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "delivery_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sms_type": {
+      "type": "string",
+      "enum": [
+        "transactional",
+        "promotional",
+        "otp",
+        "voice_otp"
+      ],
+      "default": "transactional"
+    },
+    "parts": {
+      "type": "number",
+      "default": 1
+    },
+    "cost": {
+      "type": "number",
+      "default": 0
+    },
+    "sell_rate": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "client_id",
+    "destination"
+  ]
+}

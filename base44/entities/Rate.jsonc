@@ -1,0 +1,71 @@
+{
+  "name": "Rate",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "client",
+        "supplier"
+      ],
+      "description": "Rate type"
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "Client or Supplier ID"
+    },
+    "entity_name": {
+      "type": "string",
+      "description": "Client or Supplier name"
+    },
+    "mcc": {
+      "type": "string",
+      "description": "Mobile Country Code"
+    },
+    "mnc": {
+      "type": "string",
+      "description": "Mobile Network Code"
+    },
+    "country": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "prefix": {
+      "type": "string",
+      "description": "Destination prefix"
+    },
+    "rate": {
+      "type": "number",
+      "description": "Rate per SMS"
+    },
+    "currency": {
+      "type": "string",
+      "enum": [
+        "USD",
+        "EUR",
+        "GBP",
+        "INR",
+        "AED",
+        "BDT"
+      ],
+      "default": "USD"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "type",
+    "entity_id",
+    "mcc",
+    "mnc",
+    "rate"
+  ]
+}
