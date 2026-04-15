@@ -23,6 +23,9 @@ import Notifications from './pages/Notifications';
 import TestSms from './pages/TestSms';
 import Settings from './pages/Settings';
 import UserManagement from './pages/UserManagement';
+import NumberTranslation from './pages/NumberTranslation';
+import IpManagement from './pages/IpManagement';
+import Campaigns from './pages/Campaigns';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -66,6 +69,9 @@ const AuthenticatedApp = () => {
         <Route path="/test-sms" element={<TestSms />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/users" element={<UserManagement />} />
+        <Route path="/translation" element={<NumberTranslation />} />
+        <Route path="/ip-management" element={<IpManagement />} />
+        <Route path="/campaigns" element={<Campaigns />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

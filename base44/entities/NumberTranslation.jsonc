@@ -1,0 +1,81 @@
+{
+  "name": "NumberTranslation",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": [
+        "client",
+        "supplier"
+      ],
+      "default": "client"
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "entity_name": {
+      "type": "string"
+    },
+    "match_prefix": {
+      "type": "string",
+      "description": "Prefix to match"
+    },
+    "delete_prefix": {
+      "type": "string",
+      "description": "Prefix to delete from start"
+    },
+    "add_prefix": {
+      "type": "string",
+      "description": "Prefix to add"
+    },
+    "add_suffix": {
+      "type": "string",
+      "description": "Suffix to append"
+    },
+    "replace_content": {
+      "type": "string",
+      "description": "Replace content with this"
+    },
+    "replace_type": {
+      "type": "string",
+      "enum": [
+        "replace_star",
+        "replace_blank",
+        "random_replace",
+        "digit_extract",
+        "digit_extract_forward",
+        "number_letter_extract",
+        "number_letter_extract_forward",
+        "custom",
+        "append_forward",
+        "append_backward"
+      ],
+      "default": "replace_star"
+    },
+    "separator": {
+      "type": "string",
+      "description": "Custom separator"
+    },
+    "translation_order": {
+      "type": "number",
+      "default": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "name",
+    "entity_type",
+    "entity_id",
+    "match_prefix"
+  ]
+}

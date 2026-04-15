@@ -1,0 +1,107 @@
+{
+  "name": "Campaign",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "client_id": {
+      "type": "string"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "sms",
+        "whatsapp",
+        "telegram",
+        "viber",
+        "imo"
+      ],
+      "default": "sms"
+    },
+    "supplier_id": {
+      "type": "string"
+    },
+    "supplier_name": {
+      "type": "string"
+    },
+    "sender_id": {
+      "type": "string"
+    },
+    "template_content": {
+      "type": "string"
+    },
+    "csv_file_url": {
+      "type": "string"
+    },
+    "total_numbers": {
+      "type": "number",
+      "default": 0
+    },
+    "sent_count": {
+      "type": "number",
+      "default": 0
+    },
+    "delivered_count": {
+      "type": "number",
+      "default": 0
+    },
+    "failed_count": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "scheduled",
+        "running",
+        "paused",
+        "completed",
+        "failed"
+      ],
+      "default": "draft"
+    },
+    "scheduled_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tps_limit": {
+      "type": "number",
+      "default": 10
+    },
+    "campaign_type": {
+      "type": "string",
+      "enum": [
+        "immediate",
+        "scheduled",
+        "test"
+      ],
+      "default": "immediate"
+    },
+    "api_key": {
+      "type": "string",
+      "description": "API key for channel supplier"
+    },
+    "channel_config": {
+      "type": "string",
+      "description": "JSON config for channel"
+    }
+  },
+  "required": [
+    "name",
+    "channel",
+    "template_content"
+  ]
+}

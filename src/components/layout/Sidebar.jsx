@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Building2, Route, DollarSign,
   MessageSquare, BarChart3, FileText, Settings, Shield,
   Phone, Bell, FileCode, Monitor, ChevronLeft, ChevronRight,
-  Radio, Zap
+  Radio, Zap, ArrowRightLeft, ShieldCheck, Megaphone
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -16,8 +16,11 @@ const navItems = [
   { label: "Routes", icon: Route, path: "/routes" },
   { label: "Rates", icon: DollarSign, path: "/rates" },
   { label: "MCC/MNC", icon: Radio, path: "/mccmnc" },
+  { label: "Translation", icon: ArrowRightLeft, path: "/translation" },
+  { label: "IP Mgmt", icon: ShieldCheck, path: "/ip-management" },
   { label: "SMS Logs", icon: MessageSquare, path: "/sms-logs" },
   { label: "Voice OTP", icon: Phone, path: "/voice-otp" },
+  { label: "Campaigns", icon: Megaphone, path: "/campaigns" },
   { label: "Content", icon: FileCode, path: "/content" },
   { label: "Reports", icon: BarChart3, path: "/reports" },
   { label: "Invoices", icon: FileText, path: "/invoices" },

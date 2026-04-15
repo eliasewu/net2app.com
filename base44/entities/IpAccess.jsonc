@@ -1,0 +1,54 @@
+{
+  "name": "IpAccess",
+  "type": "object",
+  "properties": {
+    "ip_address": {
+      "type": "string"
+    },
+    "list_type": {
+      "type": "string",
+      "enum": [
+        "whitelist",
+        "blacklist",
+        "web_blacklist",
+        "unaudited"
+      ],
+      "default": "whitelist"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": [
+        "client",
+        "supplier",
+        "admin",
+        "global"
+      ],
+      "default": "global"
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "entity_name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "last_seen": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "hit_count": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "ip_address",
+    "list_type"
+  ]
+}
