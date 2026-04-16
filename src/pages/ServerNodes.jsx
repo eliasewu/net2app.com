@@ -2,18 +2,18 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
+import { detectScript } from "@/lib/detectScript";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil, Trash2, Server, Database, Wifi, Shield, Eye, EyeOff, Copy, Activity } from "lucide-react";
+import { Plus, Pencil, Trash2, Server, Database, Shield, Eye, EyeOff, Copy, Activity } from "lucide-react";
 import { toast } from "sonner";
 
 const empty = {
@@ -28,6 +28,13 @@ const empty = {
   is_universal: true,
   db_host: "", db_name: "net2app", db_user: "net2app", db_password: "",
   notes: ""
+};
+
+const SERVICE_COLORS = {
+  asterisk: "bg-orange-50 text-orange-700 border-orange-200",
+  kannel: "bg-blue-50 text-blue-700 border-blue-200",
+  mariadb: "bg-teal-50 text-teal-700 border-teal-200",
+  smpp: "bg-purple-50 text-purple-700 border-purple-200",
 };
 
 export default function ServerNodes() {
@@ -47,12 +54,6 @@ export default function ServerNodes() {
     refetchInterval: 30000,
   });
 
-  const { data: platforms = [] } = useQuery({
-    queryKey: ['voip-platforms'],
-    queryFn: () => base44.entities.VoipPlatform.list(),
-    initialData: [],
-  });
-
   const createMut = useMutation({ mutationFn: d => base44.entities.ServerNode.create(d), onSuccess: () => { qc.invalidateQueries({ queryKey: ['server-nodes'] }); setDialogOpen(false); toast.success("Server node added"); } });
   const updateMut = useMutation({ mutationFn: ({ id, data }) => base44.entities.ServerNode.update(id, data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['server-nodes'] }); setDialogOpen(false); toast.success("Updated"); } });
   const deleteMut = useMutation({ mutationFn: id => base44.entities.ServerNode.delete(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ['server-nodes'] }); toast.success("Deleted"); } });
@@ -60,53 +61,14 @@ export default function ServerNodes() {
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const handleSubmit = () => editing ? updateMut.mutate({ id: editing.id, data: form }) : createMut.mutate(form);
 
-  const getServices = (n) => {
-    try { return JSON.parse(n.services || '[]'); } catch { return []; }
-  };
-
+  const getServices = (n) => { try { return JSON.parse(n.services || '[]'); } catch { return []; } };
+  const getSipBindings = (n) => { try { return JSON.parse(n.sip_bindings || '[]'); } catch { return []; } };
   const statusColor = s => s === 'online' ? 'bg-green-50 text-green-700 border-green-200' : s === 'offline' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200';
 
-  const SERVICE_COLORS = {
-    asterisk: "bg-orange-50 text-orange-700 border-orange-200",
-    kannel: "bg-blue-50 text-blue-700 border-blue-200",
-    mariadb: "bg-teal-50 text-teal-700 border-teal-200",
-    smpp: "bg-purple-50 text-purple-700 border-purple-200",
-  };
-
   const copyDbConn = (n) => {
-    const conn = `mysql -h ${n.db_host || n.server_ip} -P ${n.db_port} -u ${n.db_user} -p ${n.db_name}`;
-    navigator.clipboard.writeText(conn);
+    navigator.clipboard.writeText(`mysql -h ${n.db_host || n.server_ip} -P ${n.db_port} -u ${n.db_user} -p ${n.db_name}`);
     toast.success("DB connection string copied!");
   };
-
-  // Auto-detect script
-  const detectScript = `#!/bin/bash
-# Net2app Server Auto-Detection Script
-# Run on Debian 12 server: sudo bash detect.sh | curl -X POST https://your-api/node -d @-
-
-echo "{"
-echo '"server_ip": "'$(hostname -I | awk '{print $1}')'",'
-echo '"hostname": "'$(hostname -f)'",'
-echo '"os": "'$(lsb_release -d | cut -f2)'",'
-echo '"cpu": "'$(lscpu | grep "Model name" | cut -d: -f2 | xargs)'",'
-echo '"ram_gb": '$(free -g | awk '/^Mem:/{print $2})','
-echo '"disk_gb": '$(df -BG / | awk 'NR==2{print int($2)}')','
-echo '"asterisk_version": "'$(asterisk -V 2>/dev/null | awk '{print $2}' || echo "not installed")'",'
-echo '"kannel_version": "'$(kannel-config --version 2>/dev/null || dpkg -l kannel 2>/dev/null | awk '/^ii/{print $3}' || echo "not installed")'",'
-echo '"mariadb_version": "'$(mysql --version 2>/dev/null | awk '{print $5}' | tr -d ',' || echo "not installed")'",'
-echo '"sip_port": '$(ss -lnup | grep ':5060' > /dev/null 2>&1 && echo 5060 || echo 0)','
-echo '"ami_port": '$(ss -lntp | grep ':5038' > /dev/null 2>&1 && echo 5038 || echo 0)','
-echo '"smpp_port": '$(ss -lntp | grep ':2775' > /dev/null 2>&1 && echo 2775 || echo 0)','
-echo '"kannel_port": '$(ss -lntp | grep ':13013' > /dev/null 2>&1 && echo 13013 || echo 0)','
-echo '"db_port": '$(ss -lntp | grep ':3306' > /dev/null 2>&1 && echo 3306 || echo 0)','
-echo '"services": ['
-SVCS=""
-systemctl is-active asterisk &>/dev/null && SVCS='"asterisk"'
-systemctl is-active kannel &>/dev/null && SVCS="$SVCS,\\"kannel\\""
-systemctl is-active mariadb &>/dev/null && SVCS="$SVCS,\\"mariadb\\""
-echo "${SVCS#,}"
-echo ']'
-echo "}"`;
 
   return (
     <div className="space-y-4">
@@ -126,6 +88,7 @@ echo "}"`;
         <TabsContent value="nodes" className="mt-4 space-y-4">
           {nodes.map(n => {
             const services = getServices(n);
+            const bindings = getSipBindings(n);
             return (
               <Card key={n.id} className={`border-l-4 ${n.status === 'online' ? 'border-l-green-500' : n.status === 'offline' ? 'border-l-red-500' : 'border-l-yellow-400'}`}>
                 <CardContent className="p-5">
@@ -138,9 +101,7 @@ echo "}"`;
                           {n.status}
                         </Badge>
                         {n.is_universal && <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Universal</Badge>}
-                        {services.map(s => (
-                          <Badge key={s} variant="outline" className={`text-xs ${SERVICE_COLORS[s] || ''}`}>{s}</Badge>
-                        ))}
+                        {services.map(s => <Badge key={s} variant="outline" className={`text-xs ${SERVICE_COLORS[s] || ''}`}>{s}</Badge>)}
                       </div>
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -165,7 +126,7 @@ echo "}"`;
                         </div>
                       </div>
 
-                      {/* Port details */}
+                      {/* Port badges */}
                       <div className="flex flex-wrap gap-2">
                         {[
                           { label: "SIP", port: n.sip_port, color: "bg-orange-50 border-orange-200 text-orange-700" },
@@ -182,11 +143,11 @@ echo "}"`;
                       </div>
 
                       {/* SIP Bindings */}
-                      {n.sip_bindings && n.sip_bindings !== '[]' && (
+                      {bindings.length > 0 && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">SIP Bindings / Connected Peers</p>
                           <div className="flex flex-wrap gap-1">
-                            {(() => { try { return JSON.parse(n.sip_bindings).map((b, i) => <Badge key={i} variant="outline" className="text-xs font-mono bg-orange-50 text-orange-700 border-orange-200">{b}</Badge>); } catch { return null; } })()}
+                            {bindings.map((b, i) => <Badge key={i} variant="outline" className="text-xs font-mono bg-orange-50 text-orange-700 border-orange-200">{b}</Badge>)}
                           </div>
                         </div>
                       )}
@@ -300,7 +261,11 @@ echo "}"`;
                 <Label>Status</Label>
                 <Select value={form.status} onValueChange={v => set('status', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="online">Online</SelectItem><SelectItem value="offline">Offline</SelectItem><SelectItem value="maintenance">Maintenance</SelectItem></SelectContent>
+                  <SelectContent>
+                    <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="offline">Offline</SelectItem>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
             </div>
@@ -335,7 +300,6 @@ echo "}"`;
               <div className="space-y-1.5"><Label>Connected Clients</Label><Input type="number" value={form.connected_clients} onChange={e => set('connected_clients', Number(e.target.value))} /></div>
             </div>
 
-            {/* DB Access — super admin only */}
             {isSuperAdmin && (
               <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg space-y-3">
                 <p className="text-xs font-semibold text-teal-800 flex items-center gap-1"><Shield className="w-3.5 h-3.5" />Database Access (Super Admin Only)</p>
