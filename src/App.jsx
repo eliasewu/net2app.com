@@ -7,7 +7,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 
 import AppLayout from './components/layout/AppLayout';
-import Dashboard from './pages/Dashboard';
+import Dashboard from './pages/Dashboard.jsx';
 import Monitoring from './pages/Monitoring';
 import Clients from './pages/Clients';
 import Suppliers from './pages/Suppliers';
@@ -27,6 +27,7 @@ import NumberTranslation from './pages/NumberTranslation';
 import IpManagement from './pages/IpManagement';
 import Campaigns from './pages/Campaigns';
 import VoipPlatform from './pages/VoipPlatform';
+import ServerNodes from './pages/ServerNodes';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -74,6 +75,7 @@ const AuthenticatedApp = () => {
         <Route path="/ip-management" element={<IpManagement />} />
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/voip" element={<VoipPlatform />} />
+        <Route path="/servers" element={<ServerNodes />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

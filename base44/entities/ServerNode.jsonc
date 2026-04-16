@@ -1,0 +1,120 @@
+{
+  "name": "ServerNode",
+  "type": "object",
+  "properties": {
+    "label": {
+      "type": "string",
+      "description": "Friendly name e.g. Main VoIP Server"
+    },
+    "server_ip": {
+      "type": "string"
+    },
+    "hostname": {
+      "type": "string"
+    },
+    "os": {
+      "type": "string",
+      "description": "e.g. Debian 12 bookworm"
+    },
+    "cpu": {
+      "type": "string"
+    },
+    "ram_gb": {
+      "type": "number"
+    },
+    "disk_gb": {
+      "type": "number"
+    },
+    "services": {
+      "type": "string",
+      "description": "JSON array: asterisk, kannel, smpp, mariadb"
+    },
+    "asterisk_version": {
+      "type": "string"
+    },
+    "kannel_version": {
+      "type": "string"
+    },
+    "mariadb_version": {
+      "type": "string"
+    },
+    "sip_port": {
+      "type": "number",
+      "default": 5060
+    },
+    "ami_port": {
+      "type": "number",
+      "default": 5038
+    },
+    "smpp_port": {
+      "type": "number",
+      "default": 2775
+    },
+    "kannel_port": {
+      "type": "number",
+      "default": 13013
+    },
+    "db_port": {
+      "type": "number",
+      "default": 3306
+    },
+    "ssh_port": {
+      "type": "number",
+      "default": 22
+    },
+    "sip_bindings": {
+      "type": "string",
+      "description": "JSON array of bound SIP peers/trunks"
+    },
+    "connected_clients": {
+      "type": "number",
+      "default": 0
+    },
+    "active_calls": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "online",
+        "offline",
+        "maintenance"
+      ],
+      "default": "online"
+    },
+    "last_seen": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "platform_id": {
+      "type": "string",
+      "description": "Linked VoipPlatform ID"
+    },
+    "is_universal": {
+      "type": "boolean",
+      "default": true,
+      "description": "Universal shared database server"
+    },
+    "db_host": {
+      "type": "string"
+    },
+    "db_name": {
+      "type": "string"
+    },
+    "db_user": {
+      "type": "string"
+    },
+    "db_password": {
+      "type": "string",
+      "description": "Super admin only"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "label",
+    "server_ip"
+  ]
+}

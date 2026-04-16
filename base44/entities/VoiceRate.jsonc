@@ -1,0 +1,87 @@
+{
+  "name": "VoiceRate",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "description": "VoipClient ID"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "rate_type": {
+      "type": "string",
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "default": "sell"
+    },
+    "destination": {
+      "type": "string",
+      "description": "Destination name / country"
+    },
+    "prefix": {
+      "type": "string",
+      "description": "Dialing prefix e.g. +880"
+    },
+    "mcc": {
+      "type": "string"
+    },
+    "mnc": {
+      "type": "string"
+    },
+    "rate_per_min": {
+      "type": "number",
+      "default": 0,
+      "description": "Rate per minute"
+    },
+    "currency": {
+      "type": "string",
+      "enum": [
+        "USD",
+        "EUR",
+        "GBP",
+        "INR",
+        "AED",
+        "BDT"
+      ],
+      "default": "USD"
+    },
+    "billing_increment": {
+      "type": "number",
+      "default": 60,
+      "description": "Billing increment in seconds"
+    },
+    "min_duration": {
+      "type": "number",
+      "default": 0,
+      "description": "Minimum billable seconds"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "scheduled"
+      ],
+      "default": "active"
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "effective_until": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "client_id",
+    "rate_type",
+    "rate_per_min"
+  ]
+}

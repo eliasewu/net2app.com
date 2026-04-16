@@ -45,6 +45,7 @@ const navGroups = [
     label: "Admin",
     color: "text-purple-400",
     items: [
+      { label: "Servers", icon: Server, path: "/servers" },
       { label: "IP Mgmt", icon: ShieldCheck, path: "/ip-management" },
       { label: "Reports", icon: BarChart3, path: "/reports" },
       { label: "Invoices", icon: FileText, path: "/invoices" },
