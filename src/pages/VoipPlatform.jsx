@@ -1,222 +1,85 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import PageHeader from "@/components/shared/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil, Trash2, Server, Phone, Wifi, Activity } from "lucide-react";
-import { toast } from "sonner";
-
-const empty = {
-  name: "", platform_type: "asterisk", sip_server: "", sip_port: 5060,
-  sip_username: "", sip_password: "", require_auth: false,
-  description: "", status: "active", notes: ""
-};
+import { Server, Users, DollarSign, ArrowRightLeft, CreditCard, Terminal, BookOpen, Activity } from "lucide-react";
+import VoipPlatformSetup from "@/components/voip/VoipPlatformSetup";
+import VoipClientManager from "@/components/voip/VoipClientManager";
+import VoipRates from "@/components/voip/VoipRates";
+import VoipNumberTranslation from "@/components/voip/VoipNumberTranslation";
+import VoipBilling from "@/components/voip/VoipBilling";
+import VoipTesting from "@/components/voip/VoipTesting";
+import VoipDeployGuide from "@/components/voip/VoipDeployGuide";
 
 export default function VoipPlatform() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ ...empty });
-  const qc = useQueryClient();
+  const [tab, setTab] = useState("setup");
 
   const { data: platforms = [] } = useQuery({
     queryKey: ['voip-platforms'],
     queryFn: () => base44.entities.VoipPlatform.list('-created_date'),
     initialData: [],
+    refetchInterval: 15000,
   });
 
-  const createMut = useMutation({
-    mutationFn: d => base44.entities.VoipPlatform.create(d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['voip-platforms'] }); setDialogOpen(false); toast.success("VoIP platform added"); },
+  const { data: voipClients = [] } = useQuery({
+    queryKey: ['voip-clients'],
+    queryFn: () => base44.entities.VoipClient.list('-created_date'),
+    initialData: [],
   });
 
-  const updateMut = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.VoipPlatform.update(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['voip-platforms'] }); setDialogOpen(false); toast.success("Updated"); },
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: id => base44.entities.VoipPlatform.delete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['voip-platforms'] }); toast.success("Deleted"); },
-  });
-
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
-
-  const handleSubmit = () => {
-    if (editing) updateMut.mutate({ id: editing.id, data: form });
-    else createMut.mutate(form);
-  };
-
-  const getPlatformColor = (type) => {
-    if (type === "asterisk") return "bg-orange-50 text-orange-700 border-orange-200";
-    if (type === "freeswitch") return "bg-blue-50 text-blue-700 border-blue-200";
-    return "bg-purple-50 text-purple-700 border-purple-200";
-  };
+  const activePlatform = platforms.find(p => p.status === 'active') || platforms[0];
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="VoIP Platform" description="Manage Asterisk, FreeSWITCH and SIP servers for Voice OTP routing">
-        <Button onClick={() => { setEditing(null); setForm({ ...empty }); setDialogOpen(true); }}>
-          <Plus className="w-4 h-4 mr-2" />Add Platform
-        </Button>
+    <div className="space-y-4">
+      <PageHeader title="VoIP Platform" description="Asterisk 20+ / FreePBX integration — clients, rates, billing, ANI, testing & deployment">
+        <div className="flex items-center gap-2">
+          {activePlatform ? (
+            <Badge className={`gap-1 ${activePlatform.status === 'active' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`} variant="outline">
+              <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
+              {activePlatform.name} — {activePlatform.host}:{activePlatform.sip_port}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">No platform configured</Badge>
+          )}
+        </div>
       </PageHeader>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <Card className="p-5">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-orange-50 border border-orange-200"><Server className="w-5 h-5 text-orange-600" /></div>
-            <div><p className="text-sm text-muted-foreground">Asterisk</p><p className="text-2xl font-bold">{platforms.filter(p => p.platform_type === 'asterisk').length}</p></div>
+      {/* Quick stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Platforms", value: platforms.length, icon: Server, color: "text-orange-600 bg-orange-50 border-orange-200" },
+          { label: "SIP Clients", value: voipClients.length, icon: Users, color: "text-blue-600 bg-blue-50 border-blue-200" },
+          { label: "Active", value: voipClients.filter(c => c.status === 'active').length, icon: Activity, color: "text-green-600 bg-green-50 border-green-200" },
+          { label: "Voice+SMS", value: voipClients.filter(c => c.traffic_type === 'both').length, icon: DollarSign, color: "text-purple-600 bg-purple-50 border-purple-200" },
+        ].map(s => (
+          <div key={s.label} className="bg-card border rounded-xl p-4 flex items-center gap-3">
+            <div className={`p-2 rounded-lg border ${s.color}`}><s.icon className="w-4 h-4" /></div>
+            <div><p className="text-xs text-muted-foreground">{s.label}</p><p className="text-xl font-bold">{s.value}</p></div>
           </div>
-        </Card>
-        <Card className="p-5">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200"><Phone className="w-5 h-5 text-blue-600" /></div>
-            <div><p className="text-sm text-muted-foreground">SIP Servers</p><p className="text-2xl font-bold">{platforms.filter(p => p.platform_type === 'sip').length}</p></div>
-          </div>
-        </Card>
-        <Card className="p-5">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-green-50 border border-green-200"><Activity className="w-5 h-5 text-green-600" /></div>
-            <div><p className="text-sm text-muted-foreground">Active</p><p className="text-2xl font-bold">{platforms.filter(p => p.status === 'active').length}</p></div>
-          </div>
-        </Card>
+        ))}
       </div>
 
-      {/* Info banner */}
-      <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl flex gap-3 items-start">
-        <Wifi className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
-        <div>
-          <p className="text-sm font-semibold text-blue-800">SIP Server Configuration</p>
-          <p className="text-xs text-blue-700 mt-1">
-            Voice OTP calls are routed through the SIP server via IP and Port. No authentication required by default — 
-            simply set the SIP server IP and port. Calls will pass directly to the configured Asterisk/SIP instance.
-          </p>
-        </div>
-      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="flex-wrap h-auto gap-1 bg-muted/50 p-1">
+          <TabsTrigger value="setup" className="gap-1.5"><Server className="w-3.5 h-3.5" />Platform Setup</TabsTrigger>
+          <TabsTrigger value="clients" className="gap-1.5"><Users className="w-3.5 h-3.5" />SIP Clients</TabsTrigger>
+          <TabsTrigger value="rates" className="gap-1.5"><DollarSign className="w-3.5 h-3.5" />Buy / Sell Rates</TabsTrigger>
+          <TabsTrigger value="translation" className="gap-1.5"><ArrowRightLeft className="w-3.5 h-3.5" />Number Translation</TabsTrigger>
+          <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="w-3.5 h-3.5" />Billing</TabsTrigger>
+          <TabsTrigger value="testing" className="gap-1.5"><Terminal className="w-3.5 h-3.5" />Testing</TabsTrigger>
+          <TabsTrigger value="deploy" className="gap-1.5"><BookOpen className="w-3.5 h-3.5" />Deploy Guide</TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <Server className="w-4 h-4" />VoIP Platforms
-            <Badge variant="outline">{platforms.length}</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Platform</TableHead>
-                <TableHead>SIP Server</TableHead>
-                <TableHead>Port</TableHead>
-                <TableHead>Auth</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {platforms.map(p => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-medium">{p.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={getPlatformColor(p.platform_type)}>
-                      {p.platform_type === 'asterisk' ? 'Asterisk' : p.platform_type === 'freeswitch' ? 'FreeSWITCH' : 'SIP'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">{p.sip_server}</TableCell>
-                  <TableCell className="font-mono">{p.sip_port}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={p.require_auth ? "bg-yellow-50 text-yellow-700" : "bg-gray-100 text-gray-600"}>
-                      {p.require_auth ? "Required" : "None"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={p.status === 'active' ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-600"}>
-                      {p.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => { setEditing(p); setForm({ ...empty, ...p }); setDialogOpen(true); }}><Pencil className="w-4 h-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteMut.mutate(p.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {platforms.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-12">
-                  No VoIP platforms yet. Add your Asterisk or SIP server.
-                </TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editing ? 'Edit VoIP Platform' : 'Add VoIP Platform'}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Platform Name *</Label><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Main Asterisk" /></div>
-              <div className="space-y-1.5">
-                <Label>Platform Type</Label>
-                <Select value={form.platform_type} onValueChange={v => set('platform_type', v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="asterisk">Asterisk</SelectItem>
-                    <SelectItem value="freeswitch">FreeSWITCH</SelectItem>
-                    <SelectItem value="sip">Custom SIP</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-3">
-              <p className="text-xs font-semibold text-orange-800">SIP Connection</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>SIP Server IP / Host *</Label><Input value={form.sip_server} onChange={e => set('sip_server', e.target.value)} placeholder="192.168.1.100" /></div>
-                <div className="space-y-1.5"><Label>Port</Label><Input type="number" value={form.sip_port} onChange={e => set('sip_port', Number(e.target.value))} /></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="require_auth" checked={form.require_auth} onChange={e => set('require_auth', e.target.checked)} className="rounded" />
-                <Label htmlFor="require_auth" className="cursor-pointer">Require Authentication</Label>
-              </div>
-              {form.require_auth && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5"><Label>SIP Username</Label><Input value={form.sip_username} onChange={e => set('sip_username', e.target.value)} /></div>
-                  <div className="space-y-1.5"><Label>SIP Password</Label><Input type="password" value={form.sip_password} onChange={e => set('sip_password', e.target.value)} /></div>
-                </div>
-              )}
-              {!form.require_auth && <p className="text-xs text-orange-700">No authentication — calls route directly via IP:Port to SIP server.</p>}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Status</Label>
-              <Select value={form.status} onValueChange={v => set('status', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5"><Label>Notes</Label><Textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editing ? 'Update' : 'Add Platform'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <TabsContent value="setup" className="mt-4"><VoipPlatformSetup platforms={platforms} /></TabsContent>
+        <TabsContent value="clients" className="mt-4"><VoipClientManager platforms={platforms} /></TabsContent>
+        <TabsContent value="rates" className="mt-4"><VoipRates voipClients={voipClients} /></TabsContent>
+        <TabsContent value="translation" className="mt-4"><VoipNumberTranslation voipClients={voipClients} /></TabsContent>
+        <TabsContent value="billing" className="mt-4"><VoipBilling voipClients={voipClients} /></TabsContent>
+        <TabsContent value="testing" className="mt-4"><VoipTesting platforms={platforms} /></TabsContent>
+        <TabsContent value="deploy" className="mt-4"><VoipDeployGuide /></TabsContent>
+      </Tabs>
     </div>
   );
 }

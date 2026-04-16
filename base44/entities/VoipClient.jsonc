@@ -1,0 +1,113 @@
+{
+  "name": "VoipClient",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "platform_id": {
+      "type": "string",
+      "description": "VoipPlatform ID"
+    },
+    "platform_name": {
+      "type": "string"
+    },
+    "client_type": {
+      "type": "string",
+      "enum": [
+        "sip_trunk",
+        "sip_peer",
+        "iax2",
+        "pjsip"
+      ],
+      "default": "pjsip"
+    },
+    "username": {
+      "type": "string"
+    },
+    "password": {
+      "type": "string"
+    },
+    "ip_address": {
+      "type": "string"
+    },
+    "port": {
+      "type": "number",
+      "default": 5060
+    },
+    "caller_id": {
+      "type": "string"
+    },
+    "context": {
+      "type": "string",
+      "default": "from-trunk"
+    },
+    "codec": {
+      "type": "string",
+      "default": "ulaw,alaw,g729"
+    },
+    "max_channels": {
+      "type": "number",
+      "default": 30
+    },
+    "nat": {
+      "type": "boolean",
+      "default": false
+    },
+    "qualify": {
+      "type": "boolean",
+      "default": true
+    },
+    "traffic_type": {
+      "type": "string",
+      "enum": [
+        "voice",
+        "sms",
+        "both"
+      ],
+      "default": "voice"
+    },
+    "buy_rate": {
+      "type": "number",
+      "default": 0
+    },
+    "sell_rate": {
+      "type": "number",
+      "default": 0
+    },
+    "currency": {
+      "type": "string",
+      "enum": [
+        "USD",
+        "EUR",
+        "GBP"
+      ],
+      "default": "USD"
+    },
+    "billing_cycle": {
+      "type": "string",
+      "enum": [
+        "daily",
+        "weekly",
+        "monthly"
+      ],
+      "default": "monthly"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "blocked"
+      ],
+      "default": "active"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "username"
+  ]
+}

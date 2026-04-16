@@ -3,46 +3,128 @@
   "type": "object",
   "properties": {
     "name": {
-      "type": "string",
-      "description": "Platform name"
+      "type": "string"
     },
     "platform_type": {
       "type": "string",
       "enum": [
         "asterisk",
+        "freepbx",
         "freeswitch",
         "sip"
       ],
       "default": "asterisk"
     },
-    "sip_server": {
+    "version": {
       "type": "string",
-      "description": "SIP server IP or hostname"
+      "description": "e.g. Asterisk 20.x"
+    },
+    "host": {
+      "type": "string"
     },
     "sip_port": {
       "type": "number",
       "default": 5060
     },
-    "sip_username": {
+    "agi_host": {
+      "type": "string",
+      "description": "AGI/AMI host"
+    },
+    "ami_port": {
+      "type": "number",
+      "default": 5038
+    },
+    "ami_username": {
       "type": "string"
     },
-    "sip_password": {
+    "ami_password": {
       "type": "string"
+    },
+    "ami_secret": {
+      "type": "string"
+    },
+    "db_host": {
+      "type": "string",
+      "description": "MariaDB/MySQL host"
+    },
+    "db_port": {
+      "type": "number",
+      "default": 3306
+    },
+    "db_name": {
+      "type": "string"
+    },
+    "db_user": {
+      "type": "string"
+    },
+    "db_password": {
+      "type": "string"
+    },
+    "kannel_host": {
+      "type": "string",
+      "description": "Kannel SMS gateway host"
+    },
+    "kannel_port": {
+      "type": "number",
+      "default": 13013
+    },
+    "kannel_admin_port": {
+      "type": "number",
+      "default": 13000
+    },
+    "kannel_username": {
+      "type": "string"
+    },
+    "kannel_password": {
+      "type": "string"
+    },
+    "smpp_server_host": {
+      "type": "string"
+    },
+    "smpp_server_port": {
+      "type": "number",
+      "default": 2775
+    },
+    "smpp_server_username": {
+      "type": "string"
+    },
+    "smpp_server_password": {
+      "type": "string"
+    },
+    "debian_host": {
+      "type": "string",
+      "description": "Debian 12 server IP"
+    },
+    "debian_ssh_port": {
+      "type": "number",
+      "default": 22
+    },
+    "deploy_mode": {
+      "type": "string",
+      "enum": [
+        "voice_only",
+        "sms_only",
+        "both"
+      ],
+      "default": "both"
     },
     "require_auth": {
       "type": "boolean",
       "default": false
     },
-    "description": {
-      "type": "string"
-    },
     "status": {
       "type": "string",
       "enum": [
         "active",
-        "inactive"
+        "inactive",
+        "connecting",
+        "error"
       ],
       "default": "active"
+    },
+    "last_ping": {
+      "type": "string",
+      "format": "date-time"
     },
     "notes": {
       "type": "string"
@@ -50,6 +132,6 @@
   },
   "required": [
     "name",
-    "sip_server"
+    "host"
   ]
 }
