@@ -4,7 +4,7 @@ import {
   MessageSquare, BarChart3, FileText, Settings, Shield,
   Phone, Bell, FileCode, Monitor, ChevronLeft, ChevronRight,
   Radio, Zap, ArrowRightLeft, ShieldCheck, Megaphone, Server,
-  PhoneCall, ChevronDown, ChevronUp
+  PhoneCall, ChevronDown, ChevronUp, Wifi, BookOpen
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,7 @@ const navGroups = [
     items: [
       { label: "Voice OTP", icon: Phone, path: "/voice-otp" },
       { label: "VoIP Platform", icon: Server, path: "/voip" },
+      { label: "SMPP Gateway", icon: Wifi, path: "/smpp-gateway" },
     ]
   },
   {
@@ -49,6 +50,8 @@ const navGroups = [
       { label: "IP Mgmt", icon: ShieldCheck, path: "/ip-management" },
       { label: "Reports", icon: BarChart3, path: "/reports" },
       { label: "Invoices", icon: FileText, path: "/invoices" },
+      { label: "Billing Engine", icon: FileText, path: "/billing" },
+      { label: "Deploy Guide", icon: BookOpen, path: "/deploy-guide" },
       { label: "Notifications", icon: Bell, path: "/notifications" },
       { label: "Settings", icon: Settings, path: "/settings" },
       { label: "User Mgmt", icon: Shield, path: "/users" },

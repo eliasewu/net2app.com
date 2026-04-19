@@ -7,11 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Server, Users, DollarSign, ArrowRightLeft, CreditCard, Terminal, BookOpen, Activity } from "lucide-react";
 import VoipPlatformSetup from "@/components/voip/VoipPlatformSetup";
 import VoipClientManager from "@/components/voip/VoipClientManager";
+import SipConnectionsManager from "@/components/voip/SipConnectionsManager";
 import VoipRates from "@/components/voip/VoipRates";
 import VoipNumberTranslation from "@/components/voip/VoipNumberTranslation";
 import VoipBilling from "@/components/voip/VoipBilling";
 import VoipTesting from "@/components/voip/VoipTesting";
-import VoipDeployGuide from "@/components/voip/VoipDeployGuide";
+import IntegrationDeployGuide from "@/components/deploy/IntegrationDeployGuide";
 
 export default function VoipPlatform() {
   const [tab, setTab] = useState("setup");
@@ -65,20 +66,24 @@ export default function VoipPlatform() {
         <TabsList className="flex-wrap h-auto gap-1 bg-muted/50 p-1">
           <TabsTrigger value="setup" className="gap-1.5"><Server className="w-3.5 h-3.5" />Platform Setup</TabsTrigger>
           <TabsTrigger value="clients" className="gap-1.5"><Users className="w-3.5 h-3.5" />SIP Clients</TabsTrigger>
+          <TabsTrigger value="sip_connections" className="gap-1.5"><Activity className="w-3.5 h-3.5" />SIP/IPTSP Trunks</TabsTrigger>
           <TabsTrigger value="rates" className="gap-1.5"><DollarSign className="w-3.5 h-3.5" />Buy / Sell Rates</TabsTrigger>
           <TabsTrigger value="translation" className="gap-1.5"><ArrowRightLeft className="w-3.5 h-3.5" />Number Translation</TabsTrigger>
           <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="w-3.5 h-3.5" />Billing</TabsTrigger>
           <TabsTrigger value="testing" className="gap-1.5"><Terminal className="w-3.5 h-3.5" />Testing</TabsTrigger>
           <TabsTrigger value="deploy" className="gap-1.5"><BookOpen className="w-3.5 h-3.5" />Deploy Guide</TabsTrigger>
+          <TabsTrigger value="integration" className="gap-1.5"><BookOpen className="w-3.5 h-3.5" />Integration Guide</TabsTrigger>
         </TabsList>
 
         <TabsContent value="setup" className="mt-4"><VoipPlatformSetup platforms={platforms} /></TabsContent>
         <TabsContent value="clients" className="mt-4"><VoipClientManager platforms={platforms} /></TabsContent>
+        <TabsContent value="sip_connections" className="mt-4"><SipConnectionsManager /></TabsContent>
         <TabsContent value="rates" className="mt-4"><VoipRates voipClients={voipClients} /></TabsContent>
         <TabsContent value="translation" className="mt-4"><VoipNumberTranslation voipClients={voipClients} /></TabsContent>
         <TabsContent value="billing" className="mt-4"><VoipBilling voipClients={voipClients} /></TabsContent>
         <TabsContent value="testing" className="mt-4"><VoipTesting platforms={platforms} /></TabsContent>
-        <TabsContent value="deploy" className="mt-4"><VoipDeployGuide /></TabsContent>
+        <TabsContent value="deploy" className="mt-4"><IntegrationDeployGuide /></TabsContent>
+        <TabsContent value="integration" className="mt-4"><IntegrationDeployGuide /></TabsContent>
       </Tabs>
     </div>
   );

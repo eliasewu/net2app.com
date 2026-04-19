@@ -28,6 +28,9 @@ import IpManagement from './pages/IpManagement';
 import Campaigns from './pages/Campaigns';
 import VoipPlatform from './pages/VoipPlatform';
 import ServerNodes from './pages/ServerNodes';
+import SmppGateway from './pages/SmppGateway';
+import BillingInvoices from './pages/BillingInvoices';
+import DeployGuide from './pages/DeployGuide';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -76,6 +79,9 @@ const AuthenticatedApp = () => {
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/voip" element={<VoipPlatform />} />
         <Route path="/servers" element={<ServerNodes />} />
+        <Route path="/smpp-gateway" element={<SmppGateway />} />
+        <Route path="/billing" element={<BillingInvoices />} />
+        <Route path="/deploy-guide" element={<DeployGuide />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
