@@ -54,6 +54,7 @@ const navGroups = [
       { label: "Deploy Guide", icon: BookOpen, path: "/deploy-guide" },
       { label: "Notifications", icon: Bell, path: "/notifications" },
       { label: "Settings", icon: Settings, path: "/settings" },
+      { label: "Tenants", icon: Users, path: "/tenants" },
       { label: "User Mgmt", icon: Shield, path: "/users" },
     ]
   }

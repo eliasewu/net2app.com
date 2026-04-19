@@ -1,0 +1,121 @@
+{
+  "name": "Tenant",
+  "type": "object",
+  "properties": {
+    "company_name": {
+      "type": "string",
+      "description": "Tenant company/brand name"
+    },
+    "login_username": {
+      "type": "string",
+      "description": "Tenant admin username"
+    },
+    "login_password": {
+      "type": "string",
+      "description": "Hashed or stored password (super admin only)"
+    },
+    "contact_email": {
+      "type": "string"
+    },
+    "contact_phone": {
+      "type": "string"
+    },
+    "package_type": {
+      "type": "string",
+      "enum": [
+        "5m_sms",
+        "10m_sms",
+        "unlimited_sms",
+        "unlimited_sms_voiceotp",
+        "voip_only",
+        "custom"
+      ],
+      "default": "5m_sms"
+    },
+    "sms_limit": {
+      "type": "number",
+      "default": 5000000
+    },
+    "voice_otp_limit": {
+      "type": "number",
+      "default": 0
+    },
+    "voip_minutes_limit": {
+      "type": "number",
+      "default": 0
+    },
+    "sms_used": {
+      "type": "number",
+      "default": 0
+    },
+    "voice_otp_used": {
+      "type": "number",
+      "default": 0
+    },
+    "voip_minutes_used": {
+      "type": "number",
+      "default": 0
+    },
+    "monthly_price": {
+      "type": "number",
+      "default": 200
+    },
+    "currency": {
+      "type": "string",
+      "enum": [
+        "USD",
+        "EUR",
+        "GBP",
+        "INR",
+        "AED",
+        "BDT"
+      ],
+      "default": "USD"
+    },
+    "expiry_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "smpp_port": {
+      "type": "number",
+      "description": "Dedicated SMPP port (9096+)"
+    },
+    "http_port": {
+      "type": "number",
+      "description": "Dedicated HTTP panel port (4000-6000)"
+    },
+    "smpp_system_id": {
+      "type": "string"
+    },
+    "smpp_password": {
+      "type": "string"
+    },
+    "kannel_config": {
+      "type": "string",
+      "description": "Generated Kannel smpp-server block"
+    },
+    "ufw_commands": {
+      "type": "string",
+      "description": "UFW commands executed on creation"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "suspended",
+        "expired",
+        "pending"
+      ],
+      "default": "active"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "company_name",
+    "login_username",
+    "smpp_port",
+    "http_port"
+  ]
+}

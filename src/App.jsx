@@ -31,6 +31,7 @@ import ServerNodes from './pages/ServerNodes';
 import SmppGateway from './pages/SmppGateway';
 import BillingInvoices from './pages/BillingInvoices';
 import DeployGuide from './pages/DeployGuide';
+import TenantManagement from './pages/TenantManagement';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -82,6 +83,7 @@ const AuthenticatedApp = () => {
         <Route path="/smpp-gateway" element={<SmppGateway />} />
         <Route path="/billing" element={<BillingInvoices />} />
         <Route path="/deploy-guide" element={<DeployGuide />} />
+        <Route path="/tenants" element={<TenantManagement />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
