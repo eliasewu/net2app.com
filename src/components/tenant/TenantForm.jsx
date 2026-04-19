@@ -19,6 +19,7 @@ const empty = {
   monthly_price: 200, currency: 'USD', expiry_date: '',
   smpp_port: 9096, http_port: 4000,
   smpp_system_id: '', smpp_password: '',
+  dlr_mode: 'real',
   status: 'active', notes: ''
 };
 
@@ -186,6 +187,29 @@ export default function TenantForm({ tenants = [], initial = null, onSave, onCan
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      {/* DLR Mode */}
+      <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg space-y-2">
+        <p className="text-xs font-bold text-yellow-800">DLR Mode (Super Admin Only — Tenant Cannot See This)</p>
+        <div className="space-y-1.5">
+          <Label>Delivery Report Mode</Label>
+          <Select value={form.dlr_mode} onValueChange={v => set('dlr_mode', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="real">Real DLR — Forward actual delivery status from supplier</SelectItem>
+              <SelectItem value="fake_success">All Success DLR — Always report Delivered (override failures)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {form.dlr_mode === 'fake_success' && (
+          <div className="p-2 bg-yellow-100 border border-yellow-400 rounded text-xs text-yellow-900">
+            ⚠ <strong>All Success DLR enabled.</strong> Every outbound DLR for this tenant's clients will be forced to <strong>Delivered</strong>, regardless of actual supplier status. Kannel will override SMPP <code>message_state=1</code> and HTTP callbacks will return <code>status=Delivered</code>.
+          </div>
+        )}
+        {form.dlr_mode === 'real' && (
+          <p className="text-xs text-yellow-700">Real status from Kannel/supplier will be forwarded to tenant's clients as-is.</p>
+        )}
       </div>
 
       <div className="space-y-1.5"><Label>Notes</Label><Textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} /></div>

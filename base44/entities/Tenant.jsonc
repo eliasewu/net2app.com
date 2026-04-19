@@ -90,6 +90,15 @@
     "smpp_password": {
       "type": "string"
     },
+    "dlr_mode": {
+      "type": "string",
+      "enum": [
+        "real",
+        "fake_success"
+      ],
+      "default": "real",
+      "description": "DLR delivery report mode: real = forward actual status, fake_success = always report Delivered"
+    },
     "kannel_config": {
       "type": "string",
       "description": "Generated Kannel smpp-server block"

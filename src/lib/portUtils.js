@@ -32,7 +32,12 @@ export function isHttpPortTaken(tenants, port, excludeId = null) {
 /** Generate Kannel smpp-server config block for a tenant */
 export function generateKannelTenantConfig(tenant) {
   const id = tenant.login_username?.replace(/\W/g, '_') || 'tenant';
+  const dlrNote = tenant.dlr_mode === 'fake_success'
+    ? `# DLR MODE: ALL SUCCESS — backend overrides message_state=1 (DELIVERED) for all MO/MT DLRs`
+    : `# DLR MODE: REAL — actual supplier delivery status forwarded`;
   return [
+    `# ─── Tenant: ${tenant.company_name} ───────────────────────────────`,
+    dlrNote,
     `group = smpp-server`,
     `smpp-server-id = ${id}`,
     `port = ${tenant.smpp_port}`,
@@ -41,7 +46,7 @@ export function generateKannelTenantConfig(tenant) {
     `system-type = ""`,
     `log-file = "/var/log/kannel/${id}_smpp.log"`,
     `log-level = 1`,
-    `# Tenant: ${tenant.company_name}  HTTP port: ${tenant.http_port}`,
+    `# HTTP panel port: ${tenant.http_port}`,
   ].join('\n');
 }
 

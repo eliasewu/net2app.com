@@ -109,6 +109,7 @@ export default function TenantManagement() {
                     <TableHead>SMS Usage</TableHead>
                     <TableHead>Price/mo</TableHead>
                     <TableHead>Expiry</TableHead>
+                    <TableHead>DLR Mode</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -163,6 +164,11 @@ export default function TenantManagement() {
                               {isExpired ? '⚠ ' : ''}{t.expiry_date}
                             </span>
                           ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={t.dlr_mode === 'fake_success' ? 'bg-yellow-50 text-yellow-700 border-yellow-300' : 'bg-green-50 text-green-700 border-green-200'}>
+                            {t.dlr_mode === 'fake_success' ? '⚡ All Success' : '✓ Real DLR'}
+                          </Badge>
                         </TableCell>
                         <TableCell><Badge variant="outline" className={statusColor(t.status)}>{t.status}</Badge></TableCell>
                         <TableCell className="text-right">
