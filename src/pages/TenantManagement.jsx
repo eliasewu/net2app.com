@@ -9,10 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Pencil, Trash2, Copy, Users, DollarSign, TrendingUp, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, Users, DollarSign, TrendingUp, AlertTriangle, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import TenantForm from "@/components/tenant/TenantForm";
+import TenantSettings from "@/components/tenant/TenantSettings";
 import { generateKannelTenantConfig, generateUfwCommands } from "@/lib/portUtils";
 
 const statusColor = s => {
@@ -24,6 +25,8 @@ export default function TenantManagement() {
   const [tab, setTab] = useState("tenants");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [settingsTenantId, setSettingsTenantId] = useState(null);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [kannelView, setKannelView] = useState(false);
   const qc = useQueryClient();
 
@@ -93,6 +96,7 @@ export default function TenantManagement() {
           <TabsTrigger value="ports">Port Map</TabsTrigger>
           <TabsTrigger value="kannel">Kannel Config</TabsTrigger>
           <TabsTrigger value="ufw">UFW Commands</TabsTrigger>
+          <TabsTrigger value="settings"><Settings className="w-3.5 h-3.5 mr-1" />Tenant SMTP/Logo</TabsTrigger>
         </TabsList>
 
         {/* Tenant List */}
@@ -177,6 +181,7 @@ export default function TenantManagement() {
                               ? <Button variant="ghost" size="sm" className="text-xs h-7 text-red-600" onClick={() => suspendMut.mutate({ id: t.id, status: 'suspended' })}>Suspend</Button>
                               : <Button variant="ghost" size="sm" className="text-xs h-7 text-green-600" onClick={() => suspendMut.mutate({ id: t.id, status: 'active' })}>Activate</Button>
                             }
+                            <Button variant="outline" size="icon" className="h-7 w-7" title="SMTP/Logo Settings" onClick={() => { setSettingsTenantId(t.id); setSettingsDialogOpen(true); }}><Settings className="w-3.5 h-3.5" /></Button>
                             <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => { setEditing(t); setDialogOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteMut.mutate(t.id)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
                           </div>
@@ -238,6 +243,21 @@ export default function TenantManagement() {
           </div>
         </TabsContent>
 
+        {/* Tenant SMTP/Logo */}
+        <TabsContent value="settings" className="mt-4 space-y-3">
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+            Select a tenant from the <strong>Tenants</strong> tab (click the ⚙ settings icon) to configure their SMTP and logo. Or use the selector below.
+          </div>
+          <div className="space-y-2">
+            <select className="border rounded px-3 py-2 text-sm w-full max-w-xs"
+              value={settingsTenantId || ''} onChange={e => setSettingsTenantId(e.target.value)}>
+              <option value="">— Select Tenant —</option>
+              {tenants.map(t => <option key={t.id} value={t.id}>{t.company_name} ({t.login_username})</option>)}
+            </select>
+          </div>
+          {settingsTenantId && <TenantSettings tenantId={settingsTenantId} />}
+        </TabsContent>
+
         {/* UFW commands */}
         <TabsContent value="ufw" className="mt-4 space-y-3">
           <div className="p-3 bg-orange-50 border border-orange-300 rounded text-xs text-orange-800">
@@ -252,6 +272,18 @@ export default function TenantManagement() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Tenant SMTP/Logo Settings Dialog */}
+      <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {tenants.find(t => t.id === settingsTenantId)?.company_name || 'Tenant'} — SMTP & Logo Settings
+            </DialogTitle>
+          </DialogHeader>
+          {settingsTenantId && <TenantSettings tenantId={settingsTenantId} />}
+        </DialogContent>
+      </Dialog>
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

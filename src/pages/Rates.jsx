@@ -12,8 +12,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Upload, Download, Globe, CheckCircle, Send } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Download, Globe, CheckCircle, Send, Mail } from "lucide-react";
 import { toast } from "sonner";
+import RateEmailDialog from "@/components/rates/RateEmailDialog";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "INR", "AED", "BDT"];
 
@@ -26,6 +27,7 @@ export default function Rates() {
   const [selectedRows, setSelectedRows] = useState([]);
   const [editingCell, setEditingCell] = useState(null); // {id, field}
   const [cellValue, setCellValue] = useState("");
+  const [emailDialog, setEmailDialog] = useState(null); // { entityId, entityName, email, type }
   const fileRef = useRef();
   const qc = useQueryClient();
 
@@ -146,6 +148,13 @@ export default function Rates() {
   const filteredRates = rates.filter(r => r.type === tab);
   const entityList = tab === "client" ? clients : suppliers;
 
+  // Group rates by entity for email send button
+  const entitiesWithRates = [...new Set(filteredRates.map(r => r.entity_id))].map(id => {
+    const entity = entityList.find(e => e.id === id);
+    const entityRates = filteredRates.filter(r => r.entity_id === id);
+    return { id, name: entity?.name || id, email: entity?.email || '', rates: entityRates };
+  }).filter(e => e.rates.length > 0);
+
   return (
     <div className="space-y-4">
       <PageHeader title="Rate Management" description="MCC/MNC based rate cards — Excel-style editing">
@@ -157,6 +166,19 @@ export default function Rates() {
           <Plus className="w-4 h-4 mr-1" />Add Rate
         </Button>
       </PageHeader>
+
+      {/* Send Rate Card buttons per entity */}
+      {entitiesWithRates.length > 0 && (
+        <div className="flex flex-wrap gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <span className="text-xs font-semibold text-blue-800 w-full">Send Rate Card via Email:</span>
+          {entitiesWithRates.map(e => (
+            <Button key={e.id} size="sm" variant="outline" className="gap-1 text-xs h-7 border-blue-300 text-blue-700 hover:bg-blue-100"
+              onClick={() => setEmailDialog({ entityId: e.id, entityName: e.name, email: e.email, type: tab, rates: e.rates })}>
+              <Mail className="w-3 h-3" />{e.name}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
@@ -257,6 +279,18 @@ export default function Rates() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Rate Email Dialog */}
+      {emailDialog && (
+        <RateEmailDialog
+          open={!!emailDialog}
+          onClose={() => setEmailDialog(null)}
+          entityName={emailDialog.entityName}
+          entityEmail={emailDialog.email}
+          rates={emailDialog.rates}
+          entityType={emailDialog.type}
+        />
+      )}
 
       {/* MCC/MNC Picker */}
       <MccMncPickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onSelect={handlePickerSelect} />

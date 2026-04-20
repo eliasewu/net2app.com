@@ -3,15 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Server, Wifi, Phone, Database, Shield, BookOpen } from "lucide-react";
+import { Copy, Server, Wifi, Phone, Database, Shield, BookOpen, Users, Settings } from "lucide-react";
 import { toast } from "sonner";
 
-function CodeBlock({ label, code }) {
+function CodeBlock({ label, code, color = "text-green-400" }) {
   return (
     <div className="space-y-1">
       {label && <p className="text-xs font-semibold text-muted-foreground">{label}</p>}
       <div className="relative">
-        <pre className="bg-gray-900 text-green-400 text-xs font-mono p-4 rounded-lg overflow-x-auto whitespace-pre">{code}</pre>
+        <pre className={`bg-gray-900 ${color} text-xs font-mono p-4 rounded-lg overflow-x-auto whitespace-pre`}>{code}</pre>
         <Button size="sm" variant="ghost" className="absolute top-2 right-2 text-gray-400 hover:text-white gap-1"
           onClick={() => { navigator.clipboard.writeText(code); toast.success("Copied!"); }}>
           <Copy className="w-3 h-3" />Copy
@@ -21,17 +21,36 @@ function CodeBlock({ label, code }) {
   );
 }
 
+function InfoBox({ color = "blue", children }) {
+  const cls = {
+    blue: "bg-blue-50 border-blue-200 text-blue-800",
+    orange: "bg-orange-50 border-orange-200 text-orange-800",
+    yellow: "bg-yellow-50 border-yellow-300 text-yellow-900",
+    red: "bg-red-50 border-red-200 text-red-800",
+    green: "bg-green-50 border-green-200 text-green-800",
+    purple: "bg-purple-50 border-purple-200 text-purple-800",
+  }[color];
+  return <div className={`p-3 border rounded-lg text-xs space-y-1 ${cls}`}>{children}</div>;
+}
+
 const SCRIPTS = {
   system: `#!/bin/bash
 # Net2app – Debian 12 Full Stack Setup
 # Run as root: bash setup.sh
 
 apt-get update && apt-get upgrade -y
-apt-get install -y build-essential git curl wget \
+apt-get install -y build-essential git curl wget vim \
   libssl-dev libncurses5-dev libxml2-dev libsqlite3-dev \
   uuid-dev jansson-dev libedit-dev libjansson-dev \
   mariadb-server mariadb-client \
-  ufw fail2ban net-tools tcpdump nmap`,
+  kannel kannel-extras \
+  ufw fail2ban net-tools tcpdump nmap \
+  php8.2 php8.2-mysql php8.2-curl \
+  nginx supervisor
+
+# Start core services
+systemctl enable mariadb kannel nginx
+systemctl start mariadb nginx`,
 
   asterisk: `#!/bin/bash
 # Install Asterisk 20 LTS on Debian 12
@@ -41,117 +60,285 @@ wget https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.t
 tar xzf asterisk-20-current.tar.gz
 cd asterisk-20*/
 
-# Install dependencies
 contrib/scripts/install_prereq install
-
-# Configure & compile
 ./configure --with-jansson-bundled
-make menuselect  # Enable chan_sip, app_dial, app_voicemail, cdr_mysql
+make menuselect  # Enable: chan_sip, chan_pjsip, app_dial, cdr_mysql, res_odbc
 make -j$(nproc)
-make install
-make samples
-make config
+make install && make samples && make config
 ldconfig
 
-# Enable & start
 systemctl enable asterisk
 systemctl start asterisk
-
-# Verify
 asterisk -rx "core show version"`,
 
-  sip_conf: `; /etc/asterisk/sip.conf – Global section
-[general]
-context=default
-allowoverlap=no
-udpbindaddr=0.0.0.0
-tcpenable=no
-tcpbindaddr=0.0.0.0
-transport=udp
-srvlookup=yes
-nat=force_rport,comedia
-qualify=yes
-qualifyfreq=60
-dtmfmode=rfc2833
-relaxdtmf=yes
-canreinvite=no
-directmedia=no
-disallow=all
-allow=ulaw
-allow=alaw
-allow=g729
-registertimeout=20
-registerattempts=10
+  kannel_core: `# /etc/kannel/kannel.conf
+# ═══════════════════════════════════════════════════════════════════
+#  Net2app Kannel — bearerbox + smsbox configuration
+#  Kannel acts as BOTH:
+#    • SMPP SERVER  — tenants/clients connect TO us via SMPP bind
+#    • SMPP CLIENT  — we connect OUT to upstream SMPP suppliers
+#    • HTTP SERVER  — accept HTTP submit from tenant panels
+#    • HTTP CLIENT  — forward to HTTP API suppliers
+# ═══════════════════════════════════════════════════════════════════
 
-; Register to upstream provider
-; register => username:password@provider-host:5060/username`,
-
-  extensions_conf: `; /etc/asterisk/extensions.conf
-[from-trunk]
-; Incoming from SIP trunk
-exten => _X.,1,NoOp(Incoming call to \${EXTEN})
- same => n,Dial(PJSIP/\${EXTEN}@internal,30,tT)
- same => n,VoiceMail(\${EXTEN}@default,u)
- same => n,Hangup()
-
-[from-iptsp]
-; IPTSP Bangladesh IIGW
-exten => _X.,1,NoOp(IPTSP call \${EXTEN} from \${CALLERID(num)})
- same => n,Set(CDR(accountcode)=iptsp)
- same => n,Dial(SIP/\${EXTEN}@outbound-trunk,60,tTr)
- same => n,Hangup()
-
-[outbound-calls]
-exten => _0.,1,NoOp(Outbound call to \${EXTEN})
- same => n,Dial(SIP/\${EXTEN}@provider,60)
- same => n,Hangup()`,
-
-  kannel: `# /etc/kannel/kannel.conf
-# Net2app Kannel Configuration – Debian 12
-
+# ── Core (bearerbox) ─────────────────────────────────────────────
 group = core
 admin-port = 13000
-admin-password = CHANGE_THIS_PASSWORD
-status-password = CHANGE_THIS_PASSWORD
+admin-password = CHANGE_ADMIN_PASSWORD
+status-password = CHANGE_STATUS_PASSWORD
 log-file = "/var/log/kannel/bearerbox.log"
 log-level = 1
 box-allow-ip = 127.0.0.1
+access-log = "/var/log/kannel/access.log"
 unified-prefix = "+,00,011"
+# Allow bearerbox to listen for incoming SMPP client binds
+# Each tenant gets a dedicated port (9096, 9097, ...)
+# Configured per-tenant below in smpp-server blocks
 
+# ── SMSbox ────────────────────────────────────────────────────────
 group = smsbox
 smsbox-id = "net2app_smsbox"
-bearerbox-host = localhost
+bearerbox-host = 127.0.0.1
 bearerbox-port = 13000
 sendsms-port = 13013
+sendsms-interface = 127.0.0.1
 log-file = "/var/log/kannel/smsbox.log"
 log-level = 1
 global-sender = "NET2APP"
+max-msgs-per-second = 500
 
-# ── SMPP Supplier Example ─────────────────────────────────────
+# ── SMPP Upstream Supplier (smsc group = outbound) ───────────────
 group = smsc
 smsc = smpp
-smsc-id = "supplier1_smpp"
-host = "smpp.supplier1.com"
+smsc-id = "supplier_main"
+host = "smpp.yoursupplier.com"
 port = 2775
-smsc-username = "your_username"
-smsc-password = "your_password"
+smsc-username = "your_login"
+smsc-password = "your_pass"
 system-type = "SMPP"
 transceiver-mode = 1
-max-pending-submits = 10
-throughput = 100
-reconnect-delay = 10`,
+max-pending-submits = 20
+throughput = 200
+reconnect-delay = 10
+log-file = "/var/log/kannel/supplier_main.log"
 
-  mariadb: `#!/bin/bash
-# MariaDB setup for Net2app
+# ── HTTP Upstream Supplier ────────────────────────────────────────
+group = smsc
+smsc = http
+smsc-id = "supplier_http"
+smsc-url = "https://api.yoursupplier.com/send"
+username = "api_user"
+password = "api_pass"
+throughput = 100`,
 
-mysql -u root -e "
-CREATE DATABASE IF NOT EXISTS net2app CHARACTER SET utf8mb4;
-CREATE USER IF NOT EXISTS 'net2app'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD';
+  kannel_tenants: `# ════════════════════════════════════════════════════════════════
+#  TENANT SMPP SERVER BLOCKS — Clients connect TO these ports
+#  Add this section for each tenant created in Net2app dashboard
+# ════════════════════════════════════════════════════════════════
+
+# ── Tenant 1 Example ─────────────────────────────────────────────
+# DLR MODE: REAL
+group = smpp-server
+smpp-server-id = tenant1_acme
+port = 9096
+system-id = acme_user
+password = SecurePass123!
+system-type = ""
+log-file = "/var/log/kannel/tenant1_acme_smpp.log"
+log-level = 1
+
+# ── Tenant 2 Example ─────────────────────────────────────────────
+# DLR MODE: ALL SUCCESS — message_state forced to 1 (DELIVERED)
+group = smpp-server
+smpp-server-id = tenant2_xyz
+port = 9097
+system-id = xyz_user
+password = AnotherPass!
+system-type = ""
+log-file = "/var/log/kannel/tenant2_xyz_smpp.log"
+log-level = 1
+
+# NOTE: After creating tenants in dashboard → Tenant Management → Kannel Config tab
+# Copy the auto-generated blocks and append here, then:
+#   killall -HUP bearerbox   (reload without downtime)`,
+
+  kannel_http: `# HTTP Send API (smsbox sendsms endpoint)
+# Clients can POST/GET to submit SMS via HTTP:
+#
+# POST http://SERVER_IP:13013/cgi-bin/sendsms
+# Parameters:
+#   username=smsgw  password=PASS  from=SENDER  to=880XXXXXXXX  text=Hello
+#
+# For tenant HTTP ports (4000-6000), use nginx reverse proxy:
+
+# /etc/nginx/sites-available/tenant_http
+server {
+    listen 4000;
+    location / {
+        proxy_pass http://127.0.0.1:13013;
+        proxy_set_header Host $host;
+        # Inject tenant credentials via header or URL rewrite
+    }
+}
+
+# ── DLR Callback (Kannel → Net2app backend) ──────────────────────
+# In kannel.conf smsbox group, add:
+# dlr-url = "http://127.0.0.1:8080/dlr?msgid=%i&status=%d&to=%p"`,
+
+  bearerbox_simbox: `#!/bin/bash
+# ── SIM Box / Bearer Box Integration ────────────────────────────
+# For SIM Box hardware (BearBox, GoIP, Hybertone, Dinstar):
+# Each SIM card appears as an SMSC in Kannel.
+# The SIM box connects to bearerbox via AT modem or custom SMPP.
+
+# Option A: AT Modem (serial/USB SIM box)
+group = smsc
+smsc = at
+smsc-id = "simbox_slot1"
+device = /dev/ttyUSB0
+speed = 115200
+sms-center = "+8801XXXXXXXXX"
+throughput = 3
+
+# Option B: SMPP SIM box (GoIP/BearBox sends SMPP to us)
+# SIM box connects TO our bearerbox port 9095
+group = smsc
+smsc = smpp
+smsc-id = "simbox_goip1"
+host = "192.168.1.200"   # SIM box IP
+port = 7777              # SIM box SMPP port
+smsc-username = "goip_user"
+smsc-password = "goip_pass"
+transceiver-mode = 1
+throughput = 10
+
+# ── Reload bearerbox after config changes ────────────────────────
+# killall -HUP bearerbox
+# Or: systemctl reload kannel`,
+
+  mariadb_master: `#!/bin/bash
+# ══════════════════════════════════════════════════════════════════
+#  MariaDB — Master Database Setup for Net2app
+#  One shared server, per-tenant databases + global tables
+# ══════════════════════════════════════════════════════════════════
+
+mysql -u root << 'EOF'
+
+-- ── Global Super Admin Database ──────────────────────────────────
+CREATE DATABASE IF NOT EXISTS net2app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'net2app'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD_CHANGE_ME';
 GRANT ALL PRIVILEGES ON net2app.* TO 'net2app'@'localhost';
 
--- Asterisk CDR table
-CREATE TABLE IF NOT EXISTS net2app.cdr (
+-- ── Platform-wide tables (shared) ────────────────────────────────
+USE net2app;
+
+-- SMS Clients
+CREATE TABLE IF NOT EXISTS clients (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64) NOT NULL,
+  name         VARCHAR(128),
+  email        VARCHAR(128),
+  smpp_ip      VARCHAR(64),
+  smpp_port    INT,
+  smpp_username VARCHAR(64),
+  smpp_password VARCHAR(128),
+  connection_type ENUM('SMPP','HTTP') DEFAULT 'SMPP',
+  status       ENUM('active','inactive','blocked') DEFAULT 'active',
+  balance      DECIMAL(12,4) DEFAULT 0,
+  currency     VARCHAR(8) DEFAULT 'USD',
+  created_at   DATETIME DEFAULT NOW(),
+  INDEX(tenant_id), INDEX(status)
+) ENGINE=InnoDB;
+
+-- SMS Suppliers
+CREATE TABLE IF NOT EXISTS suppliers (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64) NOT NULL,
+  name         VARCHAR(128),
+  connection_type ENUM('HTTP','SMPP','SIP') DEFAULT 'HTTP',
+  smpp_ip      VARCHAR(64),
+  smpp_port    INT DEFAULT 2775,
+  smpp_username VARCHAR(64),
+  smpp_password VARCHAR(128),
+  http_url     TEXT,
+  api_key      VARCHAR(256),
+  status       ENUM('active','inactive','blocked') DEFAULT 'active',
+  priority     INT DEFAULT 1,
+  tps_limit    INT DEFAULT 100,
+  created_at   DATETIME DEFAULT NOW(),
+  INDEX(tenant_id)
+) ENGINE=InnoDB;
+
+-- Routes
+CREATE TABLE IF NOT EXISTS routes (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64) NOT NULL,
+  name         VARCHAR(128),
+  client_id    VARCHAR(64),
+  supplier_id  VARCHAR(64),
+  mcc          VARCHAR(8),
+  mnc          VARCHAR(8),
+  country      VARCHAR(64),
+  network      VARCHAR(128),
+  prefix       VARCHAR(32),
+  routing_mode ENUM('LCR','ASR','Priority','Round Robin') DEFAULT 'Priority',
+  status       ENUM('active','inactive','blocked') DEFAULT 'active',
+  INDEX(tenant_id), INDEX(mcc, mnc)
+) ENGINE=InnoDB;
+
+-- Rates (client + supplier)
+CREATE TABLE IF NOT EXISTS rates (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64) NOT NULL,
+  type         ENUM('client','supplier','voice') NOT NULL,
+  entity_id    VARCHAR(64),
+  entity_name  VARCHAR(128),
+  mcc          VARCHAR(8),
+  mnc          VARCHAR(8),
+  country      VARCHAR(64),
+  network      VARCHAR(128),
+  prefix       VARCHAR(32),
+  rate         DECIMAL(12,6) DEFAULT 0,
+  currency     VARCHAR(8) DEFAULT 'USD',
+  status       ENUM('active','inactive','scheduled') DEFAULT 'active',
+  effective_from DATETIME,
+  effective_until DATETIME,
+  version      INT DEFAULT 1,
+  INDEX(tenant_id, type, entity_id, mcc, mnc)
+) ENGINE=InnoDB;
+
+-- SMS Log (CDR for SMS)
+CREATE TABLE IF NOT EXISTS sms_log (
   id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id    VARCHAR(64) NOT NULL,
+  message_id   VARCHAR(64),
+  client_id    VARCHAR(64),
+  client_name  VARCHAR(128),
+  supplier_id  VARCHAR(64),
+  supplier_name VARCHAR(128),
+  sender_id    VARCHAR(32),
+  destination  VARCHAR(32),
+  mcc          VARCHAR(8),
+  mnc          VARCHAR(8),
+  country      VARCHAR(64),
+  network      VARCHAR(128),
+  content      TEXT,
+  status       ENUM('pending','sent','delivered','failed','rejected','blocked') DEFAULT 'pending',
+  fail_reason  VARCHAR(256),
+  dest_msg_id  VARCHAR(64),
+  parts        TINYINT DEFAULT 1,
+  cost         DECIMAL(12,6) DEFAULT 0,
+  sell_rate    DECIMAL(12,6) DEFAULT 0,
+  submit_time  DATETIME DEFAULT NOW(),
+  delivery_time DATETIME,
+  dlr_mode     ENUM('real','fake_success') DEFAULT 'real',
+  INDEX(tenant_id), INDEX(destination), INDEX(client_id), INDEX(status), INDEX(submit_time)
+) ENGINE=InnoDB;
+
+-- Voice CDR (Asterisk)
+CREATE TABLE IF NOT EXISTS cdr (
+  id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id    VARCHAR(64),
   calldate     DATETIME NOT NULL DEFAULT NOW(),
   clid         VARCHAR(80),
   src          VARCHAR(80),
@@ -167,66 +354,165 @@ CREATE TABLE IF NOT EXISTS net2app.cdr (
   amaflags     INT,
   accountcode  VARCHAR(20),
   uniqueid     VARCHAR(32) NOT NULL,
-  userfield    VARCHAR(255),
-  peeraccount  VARCHAR(20),
-  linkedid     VARCHAR(32),
-  INDEX(calldate), INDEX(src), INDEX(dst)
-) ENGINE=InnoDB;
-
--- SMS Log table
-CREATE TABLE IF NOT EXISTS net2app.sms_log (
-  id           BIGINT AUTO_INCREMENT PRIMARY KEY,
-  message_id   VARCHAR(64),
-  client_id    VARCHAR(64),
-  supplier_id  VARCHAR(64),
-  sender_id    VARCHAR(32),
-  destination  VARCHAR(32),
-  content      TEXT,
-  status       ENUM('pending','sent','delivered','failed','rejected') DEFAULT 'pending',
+  buy_rate     DECIMAL(10,6) DEFAULT 0,
+  sell_rate    DECIMAL(10,6) DEFAULT 0,
   cost         DECIMAL(12,6) DEFAULT 0,
-  sell_rate    DECIMAL(12,6) DEFAULT 0,
-  created_at   DATETIME DEFAULT NOW(),
-  INDEX(destination), INDEX(client_id), INDEX(status)
+  INDEX(tenant_id), INDEX(calldate), INDEX(src), INDEX(dst)
 ) ENGINE=InnoDB;
+
+-- IP Access
+CREATE TABLE IF NOT EXISTS ip_access (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64),
+  ip_address   VARCHAR(64),
+  list_type    ENUM('whitelist','blacklist','web_blacklist') DEFAULT 'whitelist',
+  entity_type  ENUM('client','supplier','admin','global') DEFAULT 'global',
+  entity_id    VARCHAR(64),
+  is_active    TINYINT(1) DEFAULT 1,
+  hit_count    INT DEFAULT 0,
+  created_at   DATETIME DEFAULT NOW(),
+  INDEX(tenant_id, ip_address)
+) ENGINE=InnoDB;
+
+-- Invoices
+CREATE TABLE IF NOT EXISTS invoices (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64) NOT NULL,
+  invoice_number VARCHAR(32),
+  client_id    VARCHAR(64),
+  client_name  VARCHAR(128),
+  period_start DATE,
+  period_end   DATE,
+  total_sms    BIGINT DEFAULT 0,
+  total_amount DECIMAL(14,4) DEFAULT 0,
+  currency     VARCHAR(8) DEFAULT 'USD',
+  status       ENUM('draft','sent','paid','overdue','cancelled') DEFAULT 'draft',
+  breakdown    JSON,
+  created_at   DATETIME DEFAULT NOW(),
+  INDEX(tenant_id, client_id)
+) ENGINE=InnoDB;
+
+-- Billing summary (real-time update via trigger)
+CREATE TABLE IF NOT EXISTS billing_summary (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64) NOT NULL,
+  period       DATE,
+  total_sms    BIGINT DEFAULT 0,
+  total_cost   DECIMAL(14,4) DEFAULT 0,
+  total_revenue DECIMAL(14,4) DEFAULT 0,
+  margin       DECIMAL(14,4) DEFAULT 0,
+  updated_at   DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  INDEX(tenant_id, period)
+) ENGINE=InnoDB;
+
+-- VoIP Platform
+CREATE TABLE IF NOT EXISTS voip_platforms (
+  id           VARCHAR(64) PRIMARY KEY,
+  tenant_id    VARCHAR(64),
+  name         VARCHAR(128),
+  host         VARCHAR(128),
+  sip_port     INT DEFAULT 5060,
+  ami_port     INT DEFAULT 5038,
+  ami_username VARCHAR(64),
+  ami_password VARCHAR(128),
+  status       ENUM('active','inactive','error') DEFAULT 'active',
+  created_at   DATETIME DEFAULT NOW(),
+  INDEX(tenant_id)
+) ENGINE=InnoDB;
+
 FLUSH PRIVILEGES;
-"
-echo "MariaDB net2app database created."`,
+EOF
+echo "Net2app master database created."`,
 
-  firewall: `#!/bin/bash
-# UFW Firewall rules for Net2app – Debian 12
+  tenant_db: `#!/bin/bash
+# ── Per-Tenant Database Provisioning ─────────────────────────────
+# Run this when creating each new tenant from dashboard.
+# Replace TENANT_ID, TENANT_NAME, TENANT_PASS accordingly.
 
-ufw default deny incoming
-ufw default allow outgoing
+TENANT_ID="tenant_acme"
+TENANT_NAME="acme_db"
+TENANT_PASS="TenantSecurePass!123"
 
-# SSH (change 22 to your actual SSH port)
-ufw allow 22/tcp
+mysql -u root << EOF
+CREATE DATABASE IF NOT EXISTS \`${TENANT_NAME}\` CHARACTER SET utf8mb4;
+CREATE USER IF NOT EXISTS '\${TENANT_ID}'@'localhost' IDENTIFIED BY '\${TENANT_PASS}';
+GRANT ALL PRIVILEGES ON \`\${TENANT_NAME}\`.*  TO '\${TENANT_ID}'@'localhost';
+-- Tenant can also SELECT from shared global tables
+GRANT SELECT ON net2app.cdr TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT ON net2app.sms_log TO '\${TENANT_ID}'@'localhost';
+FLUSH PRIVILEGES;
+EOF
 
-# SIP (standard)
-ufw allow 5060/udp
-ufw allow 5060/tcp
+# Create tenant-specific tables (mirror of global, filtered by tenant_id)
+mysql -u root "${TENANT_NAME}" << 'ENDSQL'
+-- Tenant sees their own clients, suppliers, routes, rates, logs
+-- These are VIEWS into the global tables filtered by tenant_id
 
-# SIP (IPTSP custom ports)
-ufw allow 7074/udp
-ufw allow 7074/tcp
-ufw allow 5080/udp
-ufw allow 6060/udp
+CREATE OR REPLACE VIEW v_clients   AS SELECT * FROM net2app.clients   WHERE tenant_id = DATABASE();
+CREATE OR REPLACE VIEW v_suppliers AS SELECT * FROM net2app.suppliers  WHERE tenant_id = DATABASE();
+CREATE OR REPLACE VIEW v_routes    AS SELECT * FROM net2app.routes     WHERE tenant_id = DATABASE();
+CREATE OR REPLACE VIEW v_rates     AS SELECT * FROM net2app.rates      WHERE tenant_id = DATABASE();
+CREATE OR REPLACE VIEW v_sms_log   AS SELECT * FROM net2app.sms_log    WHERE tenant_id = DATABASE();
+CREATE OR REPLACE VIEW v_cdr       AS SELECT * FROM net2app.cdr        WHERE tenant_id = DATABASE();
+CREATE OR REPLACE VIEW v_invoices  AS SELECT * FROM net2app.invoices   WHERE tenant_id = DATABASE();
+ENDSQL
 
-# RTP audio range
-ufw allow 10000:20000/udp
+echo "Tenant \${TENANT_ID} database created."`,
 
-# Kannel bearerbox admin (restrict to localhost only in production)
-ufw allow from 127.0.0.1 to any port 13000
-ufw allow from 127.0.0.1 to any port 13013
+  billing_trigger: `-- ── Real-time Billing Trigger ─────────────────────────────────────
+-- After each SMS delivery update, recalculate billing_summary
 
-# MariaDB (localhost only)
-ufw deny 3306
+DELIMITER //
+CREATE OR REPLACE TRIGGER trg_sms_billing_update
+AFTER UPDATE ON net2app.sms_log
+FOR EACH ROW
+BEGIN
+  DECLARE v_period DATE;
+  SET v_period = DATE(NEW.submit_time);
 
-# Web dashboard
-ufw allow 80/tcp
-ufw allow 443/tcp
+  INSERT INTO net2app.billing_summary
+    (id, tenant_id, period, total_sms, total_cost, total_revenue, margin)
+  VALUES (
+    CONCAT(NEW.tenant_id, '_', v_period),
+    NEW.tenant_id,
+    v_period,
+    1, NEW.cost, NEW.sell_rate, (NEW.sell_rate - NEW.cost)
+  )
+  ON DUPLICATE KEY UPDATE
+    total_sms     = total_sms + 1,
+    total_cost    = total_cost + NEW.cost,
+    total_revenue = total_revenue + NEW.sell_rate,
+    margin        = margin + (NEW.sell_rate - NEW.cost),
+    updated_at    = NOW();
+END //
+DELIMITER ;
 
-ufw enable
-ufw status verbose`,
+-- ── Invoice generation stored procedure ───────────────────────────
+DELIMITER //
+CREATE OR REPLACE PROCEDURE sp_generate_invoice(
+  IN p_tenant_id VARCHAR(64),
+  IN p_client_id VARCHAR(64),
+  IN p_start DATE,
+  IN p_end DATE,
+  IN p_currency VARCHAR(8)
+)
+BEGIN
+  SELECT
+    client_id,
+    client_name,
+    COUNT(*) AS total_sms,
+    SUM(sell_rate) AS total_amount,
+    p_currency AS currency,
+    p_start AS period_start,
+    p_end AS period_end
+  FROM net2app.sms_log
+  WHERE tenant_id = p_tenant_id
+    AND client_id = p_client_id
+    AND status = 'delivered'
+    AND submit_time BETWEEN p_start AND p_end
+  GROUP BY client_id, client_name;
+END //
+DELIMITER ;`,
 
   cdr_mysql: `; /etc/asterisk/cdr_mysql.conf
 [global]
@@ -237,11 +523,10 @@ password=STRONG_PASSWORD
 user=net2app
 port=3306
 sock=/var/run/mysqld/mysqld.sock
-userfield=1`,
+userfield=1
+additionalfields=tenant_id|buy_rate|sell_rate|cost`,
 
   ami_conf: `; /etc/asterisk/manager.conf
-; Asterisk Manager Interface for real-time status
-
 [general]
 enabled = yes
 port = 5038
@@ -255,53 +540,136 @@ permit = 127.0.0.1/255.255.255.0
 read = all
 write = all`,
 
-  smpp_server: `#!/bin/bash
-# Install OpenSMPPD or Jasmin SMPP Server on Debian 12
-# Option A: Jasmin SMS Gateway (Python-based, full-featured)
+  sip_conf: `; /etc/asterisk/sip.conf
+[general]
+context=default
+udpbindaddr=0.0.0.0
+transport=udp
+nat=force_rport,comedia
+qualify=yes
+dtmfmode=rfc2833
+disallow=all
+allow=ulaw
+allow=alaw
+allow=g729
 
-apt-get install -y python3 python3-pip redis-server rabbitmq-server
-pip3 install jasmin
+; IPTSP providers each get dedicated port
+; Tenant calls are tagged with accountcode = tenant_id for CDR billing`,
 
-# Start Jasmin
-jasmind.py --start
+  firewall: `#!/bin/bash
+# Net2app UFW Firewall – Debian 12
+# Covers: SSH, SIP, RTP, Kannel, SMPP server ports, HTTP tenant panels
 
-# Or use Docker (easier)
-docker run -d \\
-  --name jasmin \\
-  -p 2775:2775 \\
-  -p 8080:8080 \\
-  jookies/jasmin:latest
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp           # SSH
+ufw allow 80/tcp           # HTTP
+ufw allow 443/tcp          # HTTPS
+ufw allow 5060/udp         # SIP
+ufw allow 5060/tcp         # SIP TCP
+ufw allow 5080/udp         # SIP alt
+ufw allow 6060/udp         # IPTSP alt
+ufw allow 7074/udp         # BD IIGW
+ufw allow 10000:20000/udp  # RTP audio
 
-# Access web UI at http://YOUR_IP:8080
-# Default: admin / admin`,
+# Kannel bearerbox — restrict to localhost
+ufw allow from 127.0.0.1 to any port 13000
+ufw allow from 127.0.0.1 to any port 13013
+
+# SMPP base port (Kannel server)
+ufw allow 9095/tcp
+# Tenant SMPP ports (auto-opened per tenant via dashboard)
+ufw allow 9096:9200/tcp
+
+# Tenant HTTP panel ports
+ufw allow 4000:6000/tcp
+
+# MariaDB — localhost only
+ufw deny 3306
+
+ufw enable
+ufw status verbose`,
+
+  tenant_smtp: `# ── Tenant SMTP + Branding Setup (per-tenant via dashboard) ──────
+# Tenants configure their own SMTP credentials + logo from their account.
+# These are stored in tenant settings and used for:
+#   - Rate card emails to clients/suppliers
+#   - Invoice delivery
+#   - OTP / notification emails
+
+# Example: Tenant SMTP config stored in SystemSettings entity
+# setting_key = smtp_host_tenant_{id}    value = smtp.gmail.com
+# setting_key = smtp_port_tenant_{id}    value = 587
+# setting_key = smtp_user_tenant_{id}    value = admin@company.com
+# setting_key = smtp_pass_tenant_{id}    value = APP_PASSWORD
+# setting_key = smtp_from_tenant_{id}    value = "Company Name <admin@company.com>"
+# setting_key = logo_url_tenant_{id}     value = https://cdn.../logo.png
+
+# Rate Card Email template (auto-generated by Net2app):
+# Subject: Rate Update — [Destination] — [Date]
+# Body: HTML table with MCC/MNC, Country, Network, Rate, Currency, Effective Date
+# Attached: CSV export of rate card`,
 };
+
+const ARCH = `
+  ┌─────────────────────────────────────────────────────────────────┐
+  │               Net2app — Debian 12 Multi-Tenant Platform         │
+  │                                                                 │
+  │  ┌──────────────────────────────────────────────────────────┐  │
+  │  │   KANNEL BEARERBOX (core) — port 13000 admin              │  │
+  │  │   • SMPP SERVER mode: listens per-tenant ports 9096+      │  │
+  │  │   • SMPP CLIENT mode: connects OUT to suppliers           │  │
+  │  │   • HTTP CLIENT mode: forwards to HTTP API suppliers      │  │
+  │  │   • SIM Box (BearBox/GoIP) via AT modem or SMPP          │  │
+  │  │                                                           │  │
+  │  │   KANNEL SMSBOX — port 13013 (HTTP submit)               │  │
+  │  │   • Tenant HTTP panels proxy via nginx 4000-6000          │  │
+  │  └────────────────────────┬─────────────────────────────────┘  │
+  │                           │                                     │
+  │  ┌─────────────────────────▼────────────────────────────────┐  │
+  │  │              MariaDB — net2app master DB                  │  │
+  │  │  clients | suppliers | routes | rates | sms_log | cdr    │  │
+  │  │  ip_access | invoices | billing_summary (real-time)       │  │
+  │  │  Per-tenant VIEWS — tenant sees only their data           │  │
+  │  └──────────────────────────────────────────────────────────┘  │
+  │                                                                 │
+  │  ┌───────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
+  │  │  Asterisk 20  │  │  Net2app API │  │  Nginx (tenant HTTP) │ │
+  │  │  chan_sip      │  │  :8080       │  │  4000–6000 panels    │ │
+  │  │  PJSIP :5060  │  │  DLR handler │  │  80/443 admin panel  │ │
+  │  │  AMI   :5038  │  │  CDR billing │  └──────────────────────┘ │
+  │  │  CDR → MariaDB│  └──────────────┘                           │
+  │  └───────────────┘                                              │
+  │                                                                 │
+  │  Tenants → SMPP bind to port 9096+  (bearerbox SMPP server)    │
+  │  Tenants → HTTP POST to port 4000+  (nginx → smsbox)           │
+  │  Suppliers ← SMPP connect out       (bearerbox SMPP client)    │
+  │  SIM Boxes ← AT/SMPP devices        (bearerbox bearer)         │
+  │  Super Admin → manages all tenants, rates, routes, billing      │
+  │  Tenant Admin → manages their own clients, suppliers, etc.      │
+  └─────────────────────────────────────────────────────────────────┘
+`;
 
 export default function IntegrationDeployGuide() {
   const [tab, setTab] = useState("overview");
 
-  const steps = [
-    { n: 1, label: "System Prep", done: false },
-    { n: 2, label: "Asterisk 20", done: false },
-    { n: 3, label: "MariaDB", done: false },
-    { n: 4, label: "Kannel SMS", done: false },
-    { n: 5, label: "SMPP Server", done: false },
-    { n: 6, label: "Firewall", done: false },
-  ];
-
   return (
     <div className="space-y-4">
       <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 rounded-xl text-white space-y-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <BookOpen className="w-5 h-5" />
-          <h2 className="font-bold text-lg">Full Integration Deploy Guide</h2>
+          <h2 className="font-bold text-lg">Full Deploy Guide — Super Admin Only</h2>
           <Badge className="bg-white/20 text-white border-white/30">Debian 12 Bookworm</Badge>
+          <Badge className="bg-red-500/80 text-white border-red-400/50">Super Admin</Badge>
         </div>
-        <p className="text-blue-200 text-sm">Complete setup: Asterisk 20 (chan_sip + PJSIP) + Kannel SMS + SMPP Server + MariaDB CDR + AMI + Firewall</p>
-        <div className="flex flex-wrap gap-2">
-          {steps.map(s => (
-            <div key={s.n} className="flex items-center gap-1 bg-white/10 rounded px-2 py-0.5 text-xs">
-              <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">{s.n}</span>
-              {s.label}
+        <p className="text-blue-200 text-sm">
+          Asterisk 20 + Kannel (bearerbox/smsbox) SMPP/HTTP server + SIM Box + MariaDB per-tenant CDR + real-time billing + firewall
+        </p>
+        <div className="flex flex-wrap gap-2 text-xs">
+          {["1. System Prep","2. Kannel SMS","3. SIM Box","4. MariaDB Schema","5. Per-Tenant DB","6. Real-Time Billing","7. Asterisk CDR","8. Firewall","9. Tenant SMTP"].map((s,i) => (
+            <div key={i} className="flex items-center gap-1 bg-white/10 rounded px-2 py-0.5">
+              <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[9px] font-bold">{i+1}</span>
+              {s.split(". ")[1]}
             </div>
           ))}
         </div>
@@ -309,135 +677,168 @@ export default function IntegrationDeployGuide() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto gap-1 bg-muted/50 p-1">
-          <TabsTrigger value="overview" className="gap-1"><Server className="w-3.5 h-3.5" />System</TabsTrigger>
-          <TabsTrigger value="asterisk" className="gap-1"><Phone className="w-3.5 h-3.5" />Asterisk 20</TabsTrigger>
-          <TabsTrigger value="sip_config" className="gap-1"><Phone className="w-3.5 h-3.5" />SIP Config</TabsTrigger>
-          <TabsTrigger value="kannel" className="gap-1"><Wifi className="w-3.5 h-3.5" />Kannel SMS</TabsTrigger>
-          <TabsTrigger value="database" className="gap-1"><Database className="w-3.5 h-3.5" />MariaDB + CDR</TabsTrigger>
-          <TabsTrigger value="smpp" className="gap-1"><Wifi className="w-3.5 h-3.5" />SMPP Server</TabsTrigger>
-          <TabsTrigger value="security" className="gap-1"><Shield className="w-3.5 h-3.5" />Firewall</TabsTrigger>
+          <TabsTrigger value="overview" className="gap-1 text-xs"><Server className="w-3 h-3" />Overview</TabsTrigger>
+          <TabsTrigger value="system" className="gap-1 text-xs"><Settings className="w-3 h-3" />System</TabsTrigger>
+          <TabsTrigger value="kannel" className="gap-1 text-xs"><Wifi className="w-3 h-3" />Kannel</TabsTrigger>
+          <TabsTrigger value="simbox" className="gap-1 text-xs"><Wifi className="w-3 h-3" />SIM Box</TabsTrigger>
+          <TabsTrigger value="database" className="gap-1 text-xs"><Database className="w-3 h-3" />Database</TabsTrigger>
+          <TabsTrigger value="tenant_db" className="gap-1 text-xs"><Users className="w-3 h-3" />Tenant DB</TabsTrigger>
+          <TabsTrigger value="billing" className="gap-1 text-xs"><Database className="w-3 h-3" />Billing</TabsTrigger>
+          <TabsTrigger value="asterisk" className="gap-1 text-xs"><Phone className="w-3 h-3" />Asterisk</TabsTrigger>
+          <TabsTrigger value="security" className="gap-1 text-xs"><Shield className="w-3 h-3" />Firewall</TabsTrigger>
+          <TabsTrigger value="smtp" className="gap-1 text-xs"><Settings className="w-3 h-3" />SMTP/Logo</TabsTrigger>
         </TabsList>
 
+        {/* Overview */}
         <TabsContent value="overview" className="mt-4 space-y-4">
           <Card>
             <CardHeader><CardTitle className="text-sm">System Architecture</CardTitle></CardHeader>
             <CardContent>
-              <pre className="text-xs font-mono text-muted-foreground bg-muted p-4 rounded-lg overflow-x-auto">{`
-  ┌──────────────────────────────────────────────────────┐
-  │              Net2app – Debian 12 Server              │
-  │                                                      │
-  │  ┌─────────────┐   ┌───────────────┐                 │
-  │  │ Asterisk 20 │   │  Kannel SMS   │                 │
-  │  │  chan_sip   │   │  bearerbox    │                 │
-  │  │  PJSIP      │   │  smsbox       │                 │
-  │  │  IAX2       │   │  SMPP clients │                 │
-  │  │  AMI :5038  │   │  HTTP clients │                 │
-  │  │  SIP  :5060 │   │  :13013 send  │                 │
-  │  └──────┬──────┘   └──────┬────────┘                 │
-  │         │                 │                          │
-  │  ┌──────▼─────────────────▼────────┐                 │
-  │  │        MariaDB / MySQL           │                 │
-  │  │  net2app DB | CDR table          │                 │
-  │  │  sms_log  | rates | clients      │                 │
-  │  └─────────────────────────────────┘                 │
-  │                                                      │
-  │  IPTSP Ports: 7074, 5080, 6060 (custom per provider) │
-  │  RTP: 10000-20000/udp                                │
-  └──────────────────────────────────────────────────────┘
-  
-  External:
-  ┌──────────────┐     ┌──────────────────────┐
-  │  SIP Trunks  │────▶│  Asterisk (5060)     │
-  │  IPTSP India │────▶│  Asterisk (7074)     │
-  │  BD IIGW     │────▶│  Asterisk (7074)     │
-  └──────────────┘     └──────────────────────┘
-  
-  ┌──────────────┐     ┌──────────────────────┐
-  │ SMPP Suppliers│────▶│  Kannel bearerbox   │
-  │ HTTP Suppliers│────▶│  Kannel smsbox      │
-  └──────────────┘     └──────────────────────┘
-`}</pre>
+              <pre className="text-xs font-mono text-muted-foreground bg-muted p-4 rounded-lg overflow-x-auto">{ARCH}</pre>
             </CardContent>
           </Card>
-          <CodeBlock label="Step 1 — System Preparation (run as root)" code={SCRIPTS.system} />
+          <InfoBox color="orange">
+            <p className="font-bold">Key Architecture Decisions:</p>
+            <p>• <strong>Kannel only</strong> — no Jasmin. Kannel handles SMPP server + client + HTTP + SIM box (bearerbox).</p>
+            <p>• <strong>BearBox/SIM boxes</strong> connect via AT modem (/dev/ttyUSB*) or outbound SMPP to bearerbox.</p>
+            <p>• <strong>Per-tenant SMPP port</strong> (9096+): each tenant gets a dedicated smpp-server block in kannel.conf.</p>
+            <p>• <strong>MariaDB</strong>: global tables + per-tenant VIEWs = data isolation without duplication.</p>
+            <p>• <strong>Real-time billing</strong>: MySQL trigger updates billing_summary on every DLR/status update.</p>
+            <p>• <strong>Tenants act as admin</strong>: full access to their clients, suppliers, routes, rates, CDR, invoices.</p>
+          </InfoBox>
         </TabsContent>
 
+        {/* System */}
+        <TabsContent value="system" className="mt-4 space-y-4">
+          <CodeBlock label="Step 1 — System Preparation (Debian 12, run as root)" code={SCRIPTS.system} />
+          <InfoBox color="green">
+            <p>Installs: MariaDB, Kannel, Nginx, PHP, supervisor, UFW, fail2ban. Start Kannel after configuring /etc/kannel/kannel.conf.</p>
+          </InfoBox>
+        </TabsContent>
+
+        {/* Kannel */}
+        <TabsContent value="kannel" className="mt-4 space-y-4">
+          <InfoBox color="blue">
+            <p className="font-bold">Kannel = bearerbox + smsbox. NO Jasmin needed.</p>
+            <p>• <strong>bearerbox</strong>: handles all SMSC connections (inbound SMPP server for tenants + outbound SMPP/HTTP to suppliers).</p>
+            <p>• <strong>smsbox</strong>: handles HTTP send API (port 13013). Tenant panels connect via nginx reverse proxy on ports 4000–6000.</p>
+            <p>• DLR mode per tenant: "real" forwards actual status; "fake_success" injects message_state=1 at bearerbox layer.</p>
+          </InfoBox>
+          <CodeBlock label="Kannel Master Config — /etc/kannel/kannel.conf" code={SCRIPTS.kannel_core} />
+          <CodeBlock label="Per-Tenant SMPP Server Blocks (append to kannel.conf)" code={SCRIPTS.kannel_tenants} color="text-yellow-300" />
+          <CodeBlock label="HTTP Submit API + Tenant Nginx Proxy" code={SCRIPTS.kannel_http} color="text-cyan-300" />
+          <CodeBlock label="Start/Reload Kannel" code={`# Install
+apt-get install -y kannel kannel-extras
+mkdir -p /var/log/kannel && chown kannel:kannel /var/log/kannel
+
+# Start
+systemctl enable kannel && systemctl start kannel
+# OR start manually:
+/usr/sbin/bearerbox /etc/kannel/kannel.conf &
+/usr/sbin/smsbox /etc/kannel/kannel.conf &
+
+# Reload config without downtime (SIGHUP):
+killall -HUP bearerbox
+
+# Check status (web):
+curl "http://localhost:13000/status?password=CHANGE_ADMIN_PASSWORD"
+
+# Test send via smsbox:
+curl "http://localhost:13013/cgi-bin/sendsms?username=smsgw&password=PASS&from=TEST&to=8801XXXXXXXX&text=Hello"`} />
+        </TabsContent>
+
+        {/* SIM Box */}
+        <TabsContent value="simbox" className="mt-4 space-y-4">
+          <InfoBox color="purple">
+            <p className="font-bold">SIM Box / BearBox / GoIP Integration</p>
+            <p>• Kannel bearerbox connects to SIM box hardware via AT modem commands or SMPP.</p>
+            <p>• Each SIM slot = one smsc group. Bearerbox round-robins or prioritises across slots.</p>
+            <p>• For GoIP/Hybertone/Dinstar: use SMPP mode. For BearBox USB: use AT modem mode.</p>
+          </InfoBox>
+          <CodeBlock label="SIM Box Configuration — add to /etc/kannel/kannel.conf" code={SCRIPTS.bearerbox_simbox} />
+          <CodeBlock label="Detect SIM Box USB devices" code={`# List connected modems
+ls /dev/ttyUSB* /dev/ttyACM*
+dmesg | grep -i tty
+
+# Install modem manager (optional for diagnostics)
+apt-get install -y modemmanager
+mmcli -L
+
+# Test AT commands on SIM box slot
+# minicom -D /dev/ttyUSB0 -b 115200
+# AT+CIMI   — check SIM IMSI
+# AT+CSQ    — signal quality
+# AT+CREG?  — network registration`} color="text-cyan-300" />
+        </TabsContent>
+
+        {/* Database */}
+        <TabsContent value="database" className="mt-4 space-y-4">
+          <InfoBox color="blue">
+            <p className="font-bold">One MariaDB instance — all tenants, all data.</p>
+            <p>Tables: clients, suppliers, routes, rates, sms_log, cdr, ip_access, invoices, billing_summary, voip_platforms — all with <code>tenant_id</code> column.</p>
+            <p>Super Admin queries globally. Tenants query through VIEWs filtered by their tenant_id.</p>
+          </InfoBox>
+          <CodeBlock label="Step 4 — Master Database Schema (run as root)" code={SCRIPTS.mariadb_master} />
+          <CodeBlock label="Asterisk CDR MySQL Config — /etc/asterisk/cdr_mysql.conf" code={SCRIPTS.cdr_mysql} />
+          <CodeBlock label="Enable CDR MySQL in Asterisk" code={`# /etc/asterisk/modules.conf — add:
+load => cdr_mysql.so
+
+# Reload
+asterisk -rx "module reload cdr_mysql.so"
+asterisk -rx "cdr mysql status"`} />
+        </TabsContent>
+
+        {/* Tenant DB */}
+        <TabsContent value="tenant_db" className="mt-4 space-y-4">
+          <InfoBox color="yellow">
+            <p className="font-bold">Per-Tenant Database Provisioning</p>
+            <p>Each new tenant created in the dashboard needs a database user + filtered VIEWs. Run this script once per tenant.</p>
+            <p>Tenant sees only their own clients, suppliers, routes, rates, logs — isolated by tenant_id via SQL VIEWs.</p>
+          </InfoBox>
+          <CodeBlock label="Step 5 — Create Tenant Database + Views (run per tenant)" code={SCRIPTS.tenant_db} color="text-yellow-300" />
+          <CodeBlock label="Verify tenant isolation" code={`# Login as tenant DB user — should only see own data
+mysql -u tenant_acme -p acme_db -e "SELECT COUNT(*) FROM v_sms_log;"
+mysql -u tenant_acme -p acme_db -e "SELECT COUNT(*) FROM v_clients;"
+
+# Super admin sees everything
+mysql -u net2app -p net2app -e "SELECT tenant_id, COUNT(*) c FROM sms_log GROUP BY tenant_id;"`} />
+        </TabsContent>
+
+        {/* Billing */}
+        <TabsContent value="billing" className="mt-4 space-y-4">
+          <InfoBox color="green">
+            <p className="font-bold">Real-Time Billing via MySQL Trigger</p>
+            <p>Every DLR status update fires a trigger → updates billing_summary (total_sms, cost, revenue, margin) per tenant per day.</p>
+            <p>Net2app dashboard reads billing_summary for instant stats. Invoice generator calls sp_generate_invoice() stored procedure.</p>
+          </InfoBox>
+          <CodeBlock label="Step 6 — Billing Trigger + Invoice Procedure" code={SCRIPTS.billing_trigger} color="text-yellow-300" />
+          <CodeBlock label="Test billing calculation" code={`-- Check real-time billing for today
+SELECT tenant_id, period, total_sms, total_cost, total_revenue, margin
+FROM net2app.billing_summary
+WHERE period = CURDATE()
+ORDER BY total_revenue DESC;
+
+-- Generate invoice preview for a client
+CALL net2app.sp_generate_invoice(
+  'tenant_acme',
+  'client_id_here',
+  '2026-04-01',
+  '2026-04-30',
+  'USD'
+);`} />
+        </TabsContent>
+
+        {/* Asterisk */}
         <TabsContent value="asterisk" className="mt-4 space-y-4">
-          <CodeBlock label="Step 2 — Install Asterisk 20 LTS" code={SCRIPTS.asterisk} />
-          <CodeBlock label="CDR MySQL Integration (/etc/asterisk/cdr_mysql.conf)" code={SCRIPTS.cdr_mysql} />
+          <CodeBlock label="Step 7 — Install Asterisk 20 LTS" code={SCRIPTS.asterisk} />
+          <CodeBlock label="SIP Configuration (/etc/asterisk/sip.conf)" code={SCRIPTS.sip_conf} />
           <CodeBlock label="AMI Configuration (/etc/asterisk/manager.conf)" code={SCRIPTS.ami_conf} />
         </TabsContent>
 
-        <TabsContent value="sip_config" className="mt-4 space-y-4">
-          <div className="p-3 bg-orange-50 border border-orange-200 rounded text-xs text-orange-800 space-y-1">
-            <p className="font-bold">IPTSP Note:</p>
-            <p>Each IPTSP provider gets its own port (7074, 5080, 6060, etc.). Add <code>bindaddr</code> per port in sip.conf. One port = one provider.</p>
-            <p>BD IIGW: route via context <code>from-iptsp</code> with accountcode for CDR tagging.</p>
-          </div>
-          <CodeBlock label="SIP Global Configuration (/etc/asterisk/sip.conf)" code={SCRIPTS.sip_conf} />
-          <CodeBlock label="Dialplan (/etc/asterisk/extensions.conf)" code={SCRIPTS.extensions_conf} />
-        </TabsContent>
-
-        <TabsContent value="kannel" className="mt-4 space-y-4">
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-            Kannel auto-config is generated from your SMPP suppliers. Go to <strong>Suppliers → SMPP Config</strong> tab to get the ready-to-paste config block per supplier.
-          </div>
-          <CodeBlock label="Kannel Master Config (/etc/kannel/kannel.conf)" code={SCRIPTS.kannel} />
-          <CodeBlock label="Start Kannel services" code={`# Install
-apt-get install -y kannel
-
-# Create log directory
-mkdir -p /var/log/kannel
-chown kannel:kannel /var/log/kannel
-
-# Enable & start
-systemctl enable kannel
-systemctl start kannel
-
-# Check status
-systemctl status kannel
-
-# Live status (web UI)
-# http://localhost:13000/status?password=CHANGE_THIS_PASSWORD
-
-# Reload without restart
-/usr/sbin/bearerbox -v 0 /etc/kannel/kannel.conf &`} />
-        </TabsContent>
-
-        <TabsContent value="database" className="mt-4 space-y-4">
-          <CodeBlock label="Step 3 — MariaDB Setup + CDR Schema" code={SCRIPTS.mariadb} />
-          <CodeBlock label="Configure Asterisk CDR MySQL" code={`# Enable cdr_mysql module in modules.conf
-# /etc/asterisk/modules.conf
-# [modules]
-# load => cdr_mysql.so
-
-# Reload Asterisk CDR
-asterisk -rx "cdr mysql status"
-asterisk -rx "module reload cdr_mysql.so"`} />
-        </TabsContent>
-
-        <TabsContent value="smpp" className="mt-4 space-y-4">
-          <div className="p-3 bg-purple-50 border border-purple-200 rounded text-xs text-purple-800">
-            For acting as an SMPP server (clients connect to you), use <strong>Jasmin SMS Gateway</strong> or <strong>OpenSMPP</strong>. This allows clients to submit SMS via SMPP bind.
-          </div>
-          <CodeBlock label="Step 5 — SMPP Server (Jasmin)" code={SCRIPTS.smpp_server} />
-          <CodeBlock label="SMPP Server – open port 2775" code={`# Verify SMPP port is listening
-ss -lntp | grep 2775
-
-# Test SMPP bind from client
-# Use smppsend or Python smpplib:
-# python3 -c "
-# import smpplib.client, smpplib.consts
-# c = smpplib.client.Client('YOUR_IP', 2775)
-# c.connect()
-# c.bind_transceiver(system_id='testuser', password='testpass')
-# print('Bind OK')
-# "`} />
-        </TabsContent>
-
+        {/* Firewall */}
         <TabsContent value="security" className="mt-4 space-y-4">
-          <CodeBlock label="Step 6 — UFW Firewall (IPTSP ports included)" code={SCRIPTS.firewall} />
-          <CodeBlock label="Fail2ban – protect SIP from brute force" code={`# /etc/fail2ban/jail.local
+          <CodeBlock label="Step 8 — UFW Firewall (includes all tenant ports)" code={SCRIPTS.firewall} />
+          <CodeBlock label="Fail2ban — protect SIP + SSH" code={`# /etc/fail2ban/jail.local
 [asterisk]
 enabled = true
 filter = asterisk
@@ -446,9 +847,48 @@ maxretry = 5
 bantime = 3600
 findtime = 600
 
-# Reload fail2ban
+[sshd]
+enabled = true
+port = 22
+maxretry = 3
+bantime = 86400
+
 systemctl reload fail2ban
-fail2ban-client status asterisk`} />
+fail2ban-client status`} />
+          <InfoBox color="orange">
+            <p className="font-bold">Tenant ports auto-opened via dashboard:</p>
+            <p>When you create a tenant in Tenant Management, the UFW commands are auto-generated. Go to <strong>Tenant Management → UFW Commands</strong> tab to copy and run them on the server.</p>
+          </InfoBox>
+        </TabsContent>
+
+        {/* SMTP/Logo */}
+        <TabsContent value="smtp" className="mt-4 space-y-4">
+          <InfoBox color="blue">
+            <p className="font-bold">Tenant SMTP + Logo Branding</p>
+            <p>Each tenant configures their own SMTP credentials and logo from their tenant account settings. These are used for rate card emails, invoices, and notifications.</p>
+          </InfoBox>
+          <CodeBlock label="Tenant SMTP + Branding Architecture" code={SCRIPTS.tenant_smtp} color="text-cyan-300" />
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Rate Card Email Flow</CardTitle></CardHeader>
+            <CardContent>
+              <pre className="text-xs font-mono text-muted-foreground bg-muted p-4 rounded">{`
+1. Admin adds/updates rates in Rate Management
+2. "Send to Client/Supplier" button appears in rate table
+3. Clicking it:
+   a. Fetches tenant's SMTP settings
+   b. Generates HTML rate card table (grouped by MCC/MNC)
+   c. Attaches CSV export
+   d. Sends via tenant's configured SMTP
+   e. Logs notification in Notifications entity
+
+Email includes:
+  • Tenant logo (from tenant logo_url setting)
+  • Rate table: Country | Network | MCC | MNC | Prefix | Rate | Currency | Effective
+  • "This rate card supersedes all previous versions"
+  • Applies to both SMS clients/suppliers AND VoIP clients/suppliers
+              `}</pre>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

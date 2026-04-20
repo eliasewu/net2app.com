@@ -10,8 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, TrendingDown, DollarSign, Plus, Pencil, Trash2, Download } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Plus, Pencil, Trash2, Download, Mail } from "lucide-react";
 import { toast } from "sonner";
+import RateEmailDialog from "@/components/rates/RateEmailDialog";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "INR", "AED", "BDT"];
 
@@ -29,6 +30,7 @@ export default function VoipRates({ voipClients }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ ...emptyRate });
+  const [emailDialog, setEmailDialog] = useState(null);
   const qc = useQueryClient();
 
   const { data: rates = [] } = useQuery({
@@ -80,6 +82,13 @@ export default function VoipRates({ voipClients }) {
   const sellRates = rates.filter(r => r.rate_type === 'sell');
   const buyRates = rates.filter(r => r.rate_type === 'buy');
 
+  // Group by client for email button
+  const clientsWithRates = [...new Set(filteredRates.map(r => r.client_id))].map(id => {
+    const client = voipClients.find(c => c.id === id);
+    const clientRates = filteredRates.filter(r => r.client_id === id);
+    return { id, name: client?.name || id, email: '', rates: clientRates };
+  }).filter(c => c.rates.length > 0);
+
   const avgSell = sellRates.length ? (sellRates.reduce((s, r) => s + (r.rate_per_min || 0), 0) / sellRates.length) : 0;
   const avgBuy = buyRates.length ? (buyRates.reduce((s, r) => s + (r.rate_per_min || 0), 0) / buyRates.length) : 0;
 
@@ -122,6 +131,18 @@ export default function VoipRates({ voipClients }) {
           </div>
         </div>
       </div>
+
+      {clientsWithRates.length > 0 && (
+        <div className="flex flex-wrap gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <span className="text-xs font-semibold text-blue-800 w-full">Send Voice Rate Card via Email:</span>
+          {clientsWithRates.map(c => (
+            <Button key={c.id} size="sm" variant="outline" className="gap-1 text-xs h-7 border-blue-300 text-blue-700 hover:bg-blue-100"
+              onClick={() => setEmailDialog({ entityId: c.id, entityName: c.name, email: c.email, type: 'voice', rates: c.rates.map(r => ({ ...r, rate: r.rate_per_min, country: r.destination, network: '', mcc: r.mcc, mnc: r.mnc, prefix: r.prefix })) })}>
+              <Mail className="w-3 h-3" />{c.name}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <Tabs value={rateTab} onValueChange={setRateTab}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -199,6 +220,17 @@ export default function VoipRates({ voipClients }) {
           </TabsContent>
         ))}
       </Tabs>
+
+      {emailDialog && (
+        <RateEmailDialog
+          open={!!emailDialog}
+          onClose={() => setEmailDialog(null)}
+          entityName={emailDialog.entityName}
+          entityEmail={emailDialog.email}
+          rates={emailDialog.rates}
+          entityType={emailDialog.type}
+        />
+      )}
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
