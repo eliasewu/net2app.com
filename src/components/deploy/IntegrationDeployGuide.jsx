@@ -434,9 +434,9 @@ TENANT_NAME="acme_db"
 TENANT_PASS="TenantSecurePass!123"
 
 mysql -u root << EOF
-CREATE DATABASE IF NOT EXISTS \`${TENANT_NAME}\` CHARACTER SET utf8mb4;
+CREATE DATABASE IF NOT EXISTS \\\`\${TENANT_NAME}\\\` CHARACTER SET utf8mb4;
 CREATE USER IF NOT EXISTS '\${TENANT_ID}'@'localhost' IDENTIFIED BY '\${TENANT_PASS}';
-GRANT ALL PRIVILEGES ON \`\${TENANT_NAME}\`.*  TO '\${TENANT_ID}'@'localhost';
+GRANT ALL PRIVILEGES ON \\\`\${TENANT_NAME}\\\`.*  TO '\${TENANT_ID}'@'localhost';
 -- Tenant can also SELECT from shared global tables
 GRANT SELECT ON net2app.cdr TO '\${TENANT_ID}'@'localhost';
 GRANT SELECT ON net2app.sms_log TO '\${TENANT_ID}'@'localhost';
@@ -444,7 +444,7 @@ FLUSH PRIVILEGES;
 EOF
 
 # Create tenant-specific tables (mirror of global, filtered by tenant_id)
-mysql -u root "${TENANT_NAME}" << 'ENDSQL'
+mysql -u root "\${TENANT_NAME}" << 'ENDSQL'
 -- Tenant sees their own clients, suppliers, routes, rates, logs
 -- These are VIEWS into the global tables filtered by tenant_id
 
@@ -457,7 +457,7 @@ CREATE OR REPLACE VIEW v_cdr       AS SELECT * FROM net2app.cdr        WHERE ten
 CREATE OR REPLACE VIEW v_invoices  AS SELECT * FROM net2app.invoices   WHERE tenant_id = DATABASE();
 ENDSQL
 
-echo "Tenant \${TENANT_ID} database created."`,
+echo "Tenant database created."`,
 
   billing_trigger: `-- ── Real-time Billing Trigger ─────────────────────────────────────
 -- After each SMS delivery update, recalculate billing_summary
