@@ -4,12 +4,13 @@ import { base44 } from "@/api/base44Client";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Pencil, Trash2, Copy, Users, DollarSign, TrendingUp, AlertTriangle, Settings } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, Users, DollarSign, TrendingUp, AlertTriangle, Settings, Globe, ExternalLink, Server, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import TenantForm from "@/components/tenant/TenantForm";
@@ -27,7 +28,7 @@ export default function TenantManagement() {
   const [editing, setEditing] = useState(null);
   const [settingsTenantId, setSettingsTenantId] = useState(null);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [kannelView, setKannelView] = useState(false);
+  const [serverIp, setServerIp] = useState("YOUR_SERVER_IP");
   const qc = useQueryClient();
 
   const { data: tenants = [] } = useQuery({
@@ -91,8 +92,9 @@ export default function TenantManagement() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="tenants">Tenants ({tenants.length})</TabsTrigger>
+          <TabsTrigger value="access"><Globe className="w-3.5 h-3.5 mr-1" />Tenant Access URLs</TabsTrigger>
           <TabsTrigger value="ports">Port Map</TabsTrigger>
           <TabsTrigger value="kannel">Kannel Config</TabsTrigger>
           <TabsTrigger value="ufw">UFW Commands</TabsTrigger>
@@ -194,6 +196,159 @@ export default function TenantManagement() {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Tenant Access URLs */}
+        <TabsContent value="access" className="mt-4 space-y-4">
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+            <p className="text-xs font-bold text-blue-800 flex items-center gap-1"><Globe className="w-3.5 h-3.5" />Tenant Hosting — How It Works</p>
+            <p className="text-xs text-blue-700">You are the Super Admin hosting this platform. Each tenant gets their own dedicated SMPP port + HTTP panel port. They connect to you as their provider.</p>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs font-semibold text-blue-800">Your Server IP:</span>
+              <input
+                className="border border-blue-300 rounded px-2 py-1 text-xs font-mono w-40 bg-white"
+                value={serverIp}
+                onChange={e => setServerIp(e.target.value)}
+                placeholder="e.g. 45.77.100.200"
+              />
+              <span className="text-xs text-muted-foreground">(Set your actual server IP to generate correct URLs below)</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {tenants.length === 0 && (
+              <div className="text-center text-muted-foreground py-12 text-sm">No tenants yet. Create tenants first.</div>
+            )}
+            {tenants.map(t => (
+              <Card key={t.id} className={`border-2 ${t.status === 'active' ? 'border-green-200' : 'border-gray-200 opacity-70'}`}>
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${t.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                      <h3 className="font-bold">{t.company_name}</h3>
+                      <Badge variant="outline" className="text-xs">{t.package_type}</Badge>
+                      <Badge variant="outline" className={t.status === 'active' ? 'bg-green-50 text-green-700 border-green-200 text-xs' : 'text-xs'}>{t.status}</Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Login: <code className="bg-muted px-1 rounded">{t.login_username}</code></span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* SMPP Access */}
+                    <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2">
+                      <p className="text-xs font-bold text-purple-800 flex items-center gap-1"><Wifi className="w-3 h-3" />SMPP Connection</p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Host:</span>
+                          <div className="flex items-center gap-1">
+                            <code className="bg-white border rounded px-1 font-mono">{serverIp}</code>
+                            <button onClick={() => { navigator.clipboard.writeText(serverIp); toast.success("Copied"); }} className="p-0.5 hover:bg-purple-100 rounded"><Copy className="w-3 h-3 text-purple-600" /></button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Port:</span>
+                          <div className="flex items-center gap-1">
+                            <code className="bg-white border rounded px-1 font-mono text-purple-700 font-bold">{t.smpp_port}</code>
+                            <button onClick={() => { navigator.clipboard.writeText(String(t.smpp_port)); toast.success("Copied"); }} className="p-0.5 hover:bg-purple-100 rounded"><Copy className="w-3 h-3 text-purple-600" /></button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">System ID:</span>
+                          <div className="flex items-center gap-1">
+                            <code className="bg-white border rounded px-1 font-mono">{t.smpp_system_id || t.login_username}</code>
+                            <button onClick={() => { navigator.clipboard.writeText(t.smpp_system_id || t.login_username); toast.success("Copied"); }} className="p-0.5 hover:bg-purple-100 rounded"><Copy className="w-3 h-3 text-purple-600" /></button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Password:</span>
+                          <div className="flex items-center gap-1">
+                            <code className="bg-white border rounded px-1 font-mono">{t.smpp_password || '—'}</code>
+                            <button onClick={() => { navigator.clipboard.writeText(t.smpp_password || ''); toast.success("Copied"); }} className="p-0.5 hover:bg-purple-100 rounded"><Copy className="w-3 h-3 text-purple-600" /></button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="pt-1">
+                        <Button size="sm" variant="outline" className="w-full text-xs h-7 gap-1 border-purple-300 text-purple-700"
+                          onClick={() => {
+                            const txt = `SMPP Host: ${serverIp}\nPort: ${t.smpp_port}\nSystem ID: ${t.smpp_system_id || t.login_username}\nPassword: ${t.smpp_password || ''}`;
+                            navigator.clipboard.writeText(txt); toast.success("SMPP credentials copied!");
+                          }}>
+                          <Copy className="w-3 h-3" />Copy SMPP Credentials
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* HTTP Panel Access */}
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                      <p className="text-xs font-bold text-blue-800 flex items-center gap-1"><Server className="w-3 h-3" />HTTP Panel Access</p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Panel URL:</span>
+                          <div className="flex items-center gap-1">
+                            <code className="bg-white border rounded px-1 font-mono text-blue-700 text-[10px]">http://{serverIp}:{t.http_port}</code>
+                            <button onClick={() => { navigator.clipboard.writeText(`http://${serverIp}:${t.http_port}`); toast.success("URL copied"); }} className="p-0.5 hover:bg-blue-100 rounded"><Copy className="w-3 h-3 text-blue-600" /></button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">HTTP Send API:</span>
+                          <div className="flex items-center gap-1">
+                            <code className="bg-white border rounded px-1 font-mono text-[10px]">POST :{t.http_port}/cgi-bin/sendsms</code>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Username:</span>
+                          <code className="bg-white border rounded px-1 font-mono">{t.login_username}</code>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Password:</span>
+                          <code className="bg-white border rounded px-1 font-mono">{t.login_password || '—'}</code>
+                        </div>
+                      </div>
+                      <div className="pt-1">
+                        <Button size="sm" variant="outline" className="w-full text-xs h-7 gap-1 border-blue-300 text-blue-700"
+                          onClick={() => {
+                            const txt = `Panel URL: http://${serverIp}:${t.http_port}\nHTTP API: http://${serverIp}:${t.http_port}/cgi-bin/sendsms\nUsername: ${t.login_username}\nPassword: ${t.login_password || ''}`;
+                            navigator.clipboard.writeText(txt); toast.success("HTTP credentials copied!");
+                          }}>
+                          <Copy className="w-3 h-3" />Copy HTTP Credentials
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Full onboarding snippet */}
+                  <div className="p-2 bg-gray-900 rounded">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">Onboarding info to send to tenant</span>
+                      <button onClick={() => {
+                        const txt = `Welcome to ${t.company_name} SMS Platform!\n\n` +
+                          `SMPP Connection:\n  Host: ${serverIp}\n  Port: ${t.smpp_port}\n  System ID: ${t.smpp_system_id || t.login_username}\n  Password: ${t.smpp_password || ''}\n\n` +
+                          `HTTP API:\n  URL: http://${serverIp}:${t.http_port}/cgi-bin/sendsms\n  Username: ${t.login_username}\n  Password: ${t.login_password || ''}\n\n` +
+                          `Package: ${t.package_type} | SMS Limit: ${t.sms_limit >= 999999999 ? 'Unlimited' : (t.sms_limit || 0).toLocaleString()}\n` +
+                          `Expiry: ${t.expiry_date || 'No expiry'}\n`;
+                        navigator.clipboard.writeText(txt); toast.success("Onboarding info copied!");
+                      }} className="text-xs text-gray-400 hover:text-white flex items-center gap-1">
+                        <Copy className="w-3 h-3" />Copy All
+                      </button>
+                    </div>
+                    <pre className="text-green-400 text-[10px] font-mono whitespace-pre-wrap">
+{`SMPP: ${serverIp}:${t.smpp_port}  sysid=${t.smpp_system_id || t.login_username}  pass=${t.smpp_password || '?'}
+HTTP: http://${serverIp}:${t.http_port}/cgi-bin/sendsms?username=${t.login_username}&password=PASS&from=SENDER&to=NUMBER&text=MSG
+Package: ${t.package_type}  Limit: ${t.sms_limit >= 999999999 ? '∞' : (t.sms_limit || 0).toLocaleString()}  Expiry: ${t.expiry_date || 'none'}`}
+                    </pre>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-800 space-y-1">
+            <p className="font-bold">Hosting Business Setup Checklist:</p>
+            <p>1. Install Kannel on your Debian 12 server → see <strong>Deploy Guide</strong></p>
+            <p>2. Copy <strong>Kannel Config</strong> tab → append to <code>/etc/kannel/kannel.conf</code> → run <code>killall -HUP bearerbox</code></p>
+            <p>3. Run <strong>UFW Commands</strong> tab commands on your server as root to open tenant ports</p>
+            <p>4. Share the SMPP/HTTP credentials above with each tenant</p>
+            <p>5. Tenant connects their SMS platform using SMPP or HTTP API — they feel like their own dedicated platform</p>
+          </div>
         </TabsContent>
 
         {/* Port map */}

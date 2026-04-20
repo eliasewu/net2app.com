@@ -28,6 +28,7 @@ export default function Rates() {
   const [editingCell, setEditingCell] = useState(null); // {id, field}
   const [cellValue, setCellValue] = useState("");
   const [emailDialog, setEmailDialog] = useState(null); // { entityId, entityName, email, type }
+  const [showInactive, setShowInactive] = useState(false);
   const fileRef = useRef();
   const qc = useQueryClient();
 
@@ -145,7 +146,9 @@ export default function Rates() {
     toast.success("Deleted selected");
   };
 
-  const filteredRates = rates.filter(r => r.type === tab);
+  const allTabRates = rates.filter(r => r.type === tab);
+  const filteredRates = showInactive ? allTabRates : allTabRates.filter(r => r.status === "active" || r.status === "scheduled");
+  const inactiveCount = allTabRates.filter(r => r.status === "inactive").length;
   const entityList = tab === "client" ? clients : suppliers;
 
   // Group rates by entity for email send button
@@ -187,13 +190,20 @@ export default function Rates() {
         </TabsList>
 
         <TabsContent value={tab} className="mt-4">
-          {selectedRows.length > 0 && (
-            <div className="flex items-center gap-3 mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <span className="text-sm font-medium text-blue-700">{selectedRows.length} selected</span>
-              <Button size="sm" variant="destructive" onClick={deleteSelected}><Trash2 className="w-3 h-3 mr-1" />Delete Selected</Button>
-              <Button size="sm" variant="outline" onClick={() => setSelectedRows([])}>Clear</Button>
-            </div>
-          )}
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            {selectedRows.length > 0 && (
+              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <span className="text-sm font-medium text-blue-700">{selectedRows.length} selected</span>
+                <Button size="sm" variant="destructive" onClick={deleteSelected}><Trash2 className="w-3 h-3 mr-1" />Delete Selected</Button>
+                <Button size="sm" variant="outline" onClick={() => setSelectedRows([])}>Clear</Button>
+              </div>
+            )}
+            {inactiveCount > 0 && (
+              <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => setShowInactive(v => !v)}>
+                {showInactive ? "Hide" : "Show"} {inactiveCount} Superseded/Inactive Rate{inactiveCount !== 1 ? "s" : ""}
+              </Button>
+            )}
+          </div>
 
           {/* Excel-style table */}
           <Card className="overflow-hidden">
@@ -216,7 +226,7 @@ export default function Rates() {
                 </thead>
                 <tbody>
                   {filteredRates.map((r, idx) => (
-                    <tr key={r.id} className={`border-b hover:bg-accent/30 ${idx % 2 === 0 ? "" : "bg-muted/20"} ${selectedRows.includes(r.id) ? "bg-blue-50" : ""}`}>
+                    <tr key={r.id} className={`border-b hover:bg-accent/30 ${r.status === "inactive" ? "opacity-50 bg-gray-50" : idx % 2 === 0 ? "" : "bg-muted/20"} ${selectedRows.includes(r.id) ? "bg-blue-50" : ""}`}>
                       <td className="p-2 text-center border-r">
                         <input type="checkbox" checked={selectedRows.includes(r.id)} onChange={e => setSelectedRows(prev => e.target.checked ? [...prev, r.id] : prev.filter(id => id !== r.id))} />
                       </td>
@@ -273,7 +283,7 @@ export default function Rates() {
             </div>
             {filteredRates.length > 0 && (
               <div className="px-4 py-2 text-xs text-muted-foreground border-t bg-muted/30">
-                {filteredRates.length} rates • Double-click any cell to edit inline • <span className="text-blue-600">Tip: Select multiple rows to bulk delete</span>
+                {filteredRates.filter(r => r.status === 'active').length} active + {filteredRates.filter(r => r.status === 'inactive').length} superseded shown • Double-click any cell to edit inline • When a new rate is added for same MCC/MNC, old rate is auto-deactivated but kept for history.
               </div>
             )}
           </Card>

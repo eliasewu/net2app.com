@@ -14,7 +14,7 @@ export default function MccMncPickerDialog({ open, onOpenChange, onSelect }) {
 
   const { data: mccmncs = [] } = useQuery({
     queryKey: ["mccmnc"],
-    queryFn: () => base44.entities.MccMnc.list("-country", 500),
+    queryFn: () => base44.entities.MccMnc.list("-country", 2000),
     initialData: [],
   });
 
@@ -70,9 +70,10 @@ export default function MccMncPickerDialog({ open, onOpenChange, onSelect }) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input placeholder="Search country, network, MCC..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <Button variant="outline" size="sm" onClick={selectAll}>All</Button>
+          <Button variant="outline" size="sm" onClick={selectAll}>All ({mccmncs.length})</Button>
           <Button variant="outline" size="sm" onClick={clearAll}>None</Button>
         </div>
+        <div className="text-xs text-muted-foreground">{grouped.length} countries / {mccmncs.length} networks available</div>
 
         {selected.length > 0 && (
           <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-2 bg-blue-50 rounded border border-blue-200">
