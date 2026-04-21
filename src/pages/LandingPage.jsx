@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   MessageSquare, Phone, Globe, Shield, Zap, Server, Star,
   ChevronRight, Mail, MapPin, Calendar, CheckCircle2,
-  ArrowRight, Menu, X, Radio, Wifi, PhoneCall
+  ArrowRight, Menu, X, Radio, Wifi, PhoneCall, ChevronDown
 } from "lucide-react";
 
 const COMPANY = {
@@ -20,6 +20,14 @@ const COMPANY = {
 };
 
 const WHATSAPP_URL = `https://wa.me/${COMPANY.whatsapp.replace(/\D/g, '')}`;
+
+const LOGIN_ROLES = [
+  { label: "Website Manager", icon: "🌐" },
+  { label: "Server / Admin", icon: "🖥️" },
+  { label: "Support", icon: "🎧" },
+  { label: "User", icon: "👤" },
+  { label: "Agent", icon: "🤝" },
+];
 
 const CATEGORY_LABELS = {
   sms: { label: "SMS Package", color: "bg-blue-100 text-blue-700", icon: MessageSquare },
@@ -106,9 +114,7 @@ export default function LandingPage() {
                 <MessageSquare className="w-3.5 h-3.5" /> WhatsApp
               </Button>
             </a>
-            <Button size="sm" onClick={() => base44.auth.redirectToLogin()} className="bg-blue-600 hover:bg-blue-700">
-              Login
-            </Button>
+            <LoginDropdown />
           </div>
           <button className="md:hidden p-2" onClick={() => setMenuOpen(v => !v)}>
             {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -123,7 +129,15 @@ export default function LandingPage() {
               <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="flex-1">
                 <Button size="sm" className="w-full bg-green-500 hover:bg-green-600 text-white">WhatsApp</Button>
               </a>
-              <Button size="sm" className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={() => base44.auth.redirectToLogin()}>Login</Button>
+            </div>
+            <div className="pt-1 border-t">
+              <p className="text-xs text-gray-500 mb-2 font-medium">Portal Login</p>
+              {LOGIN_ROLES.map(role => (
+                <button key={role.label} onClick={() => base44.auth.redirectToLogin()}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 text-left text-sm text-gray-700">
+                  <span>{role.icon}</span> {role.label}
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -460,6 +474,35 @@ function DefaultSmsPackages() {
           </CardContent>
         </Card>
       ))}
+    </div>
+  );
+}
+
+function LoginDropdown() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button size="sm" onClick={() => setOpen(v => !v)}
+        className="bg-blue-600 hover:bg-blue-700 gap-1">
+        Login <ChevronDown className="w-3 h-3" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="px-3 py-2 bg-gray-50 border-b">
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Portal Login</p>
+          </div>
+          {LOGIN_ROLES.map(role => (
+            <button key={role.label}
+              onClick={() => { setOpen(false); base44.auth.redirectToLogin(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-left text-sm text-gray-700 transition-colors">
+              <span className="text-base">{role.icon}</span>
+              <span className="font-medium">{role.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

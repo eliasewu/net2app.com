@@ -38,19 +38,20 @@ const SCRIPTS = {
 # Net2app – Debian 12 Full Stack Setup
 # Run as root: bash setup.sh
 
-apt-get update && apt-get upgrade -y
-apt-get install -y build-essential git curl wget vim \
-  libssl-dev libncurses5-dev libxml2-dev libsqlite3-dev \
-  uuid-dev jansson-dev libedit-dev libjansson-dev \
-  mariadb-server mariadb-client \
-  kannel kannel-extras \
-  ufw fail2ban net-tools tcpdump nmap \
-  php8.2 php8.2-mysql php8.2-curl \
-  nginx supervisor
+apt-get update && apt-get install -y \\
+    build-essential git curl wget vim \\
+    libssl-dev libncurses5-dev libxml2-dev libsqlite3-dev \\
+    uuid-dev libjansson-dev libedit-dev \\
+    mariadb-server mariadb-client \\
+    kannel kannel-extras \\
+    ufw fail2ban net-tools tcpdump nmap \\
+    php8.2 php8.2-mysql php8.2-curl \\
+    nginx supervisor
 
 # Start core services
 systemctl enable mariadb kannel nginx
-systemctl start mariadb nginx`,
+systemctl start mariadb kannel nginx
+echo "✅ System packages installed successfully"`,
 
   asterisk: `#!/bin/bash
 # Install Asterisk 20 LTS on Debian 12

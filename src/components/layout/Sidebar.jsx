@@ -4,7 +4,7 @@ import {
   MessageSquare, BarChart3, FileText, Settings, Shield,
   Phone, Bell, FileCode, Monitor, ChevronLeft, ChevronRight,
   Radio, Zap, ArrowRightLeft, ShieldCheck, Megaphone, Server,
-  PhoneCall, ChevronDown, ChevronUp, Wifi, BookOpen, QrCode, GripVertical, Globe
+  PhoneCall, ChevronDown, ChevronUp, Wifi, BookOpen, GripVertical, Globe
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -33,7 +33,6 @@ const DEFAULT_NAV_GROUPS = [
       { label: "Test SMS", icon: Zap, path: "/test-sms" },
       { label: "Campaigns", icon: Megaphone, path: "/campaigns" },
       { label: "Content", icon: FileCode, path: "/content" },
-      { label: "Device Connect", icon: QrCode, path: "/device-connect" },
     ]
   },
   {
