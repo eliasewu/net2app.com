@@ -12,9 +12,50 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Search, Eye, GripHorizontal, GripVertical, RefreshCw, Settings2 } from "lucide-react";
 import { format } from "date-fns";
 
+// ── SMS helpers ──────────────────────────────────────────────────────────────
+// Detect if string contains non-GSM7 characters (needs Unicode/UCS-2 encoding)
+function isUnicode(text) {
+  if (!text) return false;
+  // GSM7 basic charset + extension
+  const gsm7 = /^[@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ\x1BÆæßÉ !"#¤%&'()*+,\-.\/0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà\^{}\[~\]|€]*$/;
+  return !gsm7.test(text);
+}
+
+// Count actual characters including all hidden/invisible chars (ZWJ, ZWNJ, etc.)
+function getMsgLength(text) {
+  if (!text) return 0;
+  // Use spread to correctly count Unicode code points (emoji, surrogate pairs)
+  return [...text].length;
+}
+
+// Calculate number of SMS units
+function getSmsUnits(text) {
+  if (!text) return { units: 0, perMsg: 0, isUnicode: false, length: 0 };
+  const unicode = isUnicode(text);
+  const length = getMsgLength(text);
+  const singleMax = unicode ? 70 : 160;
+  const multiMax  = unicode ? 67 : 153;
+  let units;
+  if (length <= singleMax) {
+    units = 1;
+  } else {
+    units = Math.ceil(length / multiMax);
+  }
+  return { units, perMsg: singleMax, isUnicode: unicode, length };
+}
+
+// TTD = Time To Delivery in seconds (delivery_time - submit_time or created_date)
+function getTTD(log) {
+  const end = log.delivery_time ? new Date(log.delivery_time) : null;
+  const start = log.submit_time ? new Date(log.submit_time) : log.created_date ? new Date(log.created_date) : null;
+  if (!end || !start) return null;
+  return Math.round((end - start) / 1000);
+}
+
 const ALL_COLUMNS = [
   { key: "time",           label: "SMS Time OUT",        width: 120, visible: true  },
   { key: "time_in",        label: "SMS Time IN",         width: 120, visible: true  },
+  { key: "ttd",            label: "TTD (s)",             width: 80,  visible: true  },
   { key: "msg_id",         label: "Msg ID (Customer)",   width: 130, visible: true  },
   { key: "dest_msg_id",    label: "Msg ID (Vendor)",     width: 130, visible: true  },
   { key: "msg_id_int",     label: "Msg ID (Internal)",   width: 130, visible: false },
@@ -30,6 +71,9 @@ const ALL_COLUMNS = [
   { key: "prefix",         label: "DST Prefix",          width: 90,  visible: false },
   { key: "original_content", label: "Msg Body IN",       width: 200, visible: true  },
   { key: "content",        label: "Msg Body OUT",        width: 200, visible: true  },
+  { key: "msg_len",        label: "Msg Len",             width: 75,  visible: true  },
+  { key: "msg_units",      label: "Units",               width: 65,  visible: true  },
+  { key: "encoding",       label: "Encoding",            width: 80,  visible: true  },
   { key: "status",         label: "Status",              width: 100, visible: true  },
   { key: "fail_reason",    label: "Response Code",       width: 150, visible: true  },
   { key: "dlr_code",       label: "DLR Code (Vendor)",   width: 120, visible: false },
@@ -42,7 +86,7 @@ const ALL_COLUMNS = [
   { key: "delivery_time",  label: "DLR Received",        width: 130, visible: false },
 ];
 
-const STORAGE_KEY = "smslogs_columns_v2";
+const STORAGE_KEY = "smslogs_columns_v3";
 
 function loadColumns() {
   try {
@@ -191,6 +235,33 @@ export default function SmsLogs() {
       case "route_id": return <span className="font-mono text-xs">{log.route_id || '—'}</span>;
       case "submit_time": return <span className="text-xs whitespace-nowrap">{log.submit_time ? format(new Date(log.submit_time), 'dd/MM HH:mm:ss') : '—'}</span>;
       case "delivery_time": return <span className="text-xs whitespace-nowrap">{log.delivery_time ? format(new Date(log.delivery_time), 'dd/MM HH:mm:ss') : '—'}</span>;
+      case "ttd": {
+        const ttd = getTTD(log);
+        if (ttd === null) return <span className="text-xs text-muted-foreground">—</span>;
+        const color = ttd <= 5 ? 'text-green-600' : ttd <= 30 ? 'text-yellow-600' : 'text-red-600';
+        return <span className={`text-xs font-mono font-semibold ${color}`}>{ttd}s</span>;
+      }
+      case "msg_len": {
+        const txt = log.content || log.original_content || '';
+        const { length } = getSmsUnits(txt);
+        return <span className="text-xs font-mono text-center">{length}</span>;
+      }
+      case "msg_units": {
+        const txt = log.content || log.original_content || '';
+        const { units } = getSmsUnits(txt);
+        return (
+          <span className={`text-xs font-mono font-bold text-center ${units > 1 ? 'text-orange-600' : 'text-green-600'}`}>{units}</span>
+        );
+      }
+      case "encoding": {
+        const txt = log.content || log.original_content || '';
+        const { isUnicode: uni } = getSmsUnits(txt);
+        return (
+          <Badge variant="outline" className={`text-[10px] py-0 px-1 ${uni ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+            {uni ? 'Unicode' : 'GSM7'}
+          </Badge>
+        );
+      }
       default: return null;
     }
   };
@@ -323,51 +394,90 @@ export default function SmsLogs() {
       <Dialog open={!!detailLog} onOpenChange={() => setDetailLog(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>SMS Log Detail (MDR)</DialogTitle></DialogHeader>
-          {detailLog && (
-            <div className="space-y-4 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  ["Msg ID (Customer)", detailLog.message_id],
-                  ["Msg ID (Vendor)", detailLog.dest_message_id],
-                  ["Internal ID", detailLog.id],
-                  ["Destination", detailLog.destination],
-                  ["Status", null, <StatusBadge status={detailLog.status} />],
-                  ["SMS Type", detailLog.sms_type],
-                  ["Client", detailLog.client_name],
-                  ["Supplier", detailLog.supplier_name],
-                  ["Sender ID", detailLog.sender_id],
-                  ["Country", detailLog.country],
-                  ["MCC", detailLog.mcc],
-                  ["MNC", detailLog.mnc],
-                  ["Prefix", detailLog.prefix],
-                  ["Parts", detailLog.parts],
-                  ["Cost (sys)", detailLog.cost?.toFixed(5)],
-                  ["Sell Rate", detailLog.sell_rate?.toFixed(5)],
-                  ["Submit Time", detailLog.submit_time ? format(new Date(detailLog.submit_time), 'PPpp') : '—'],
-                  ["Delivery Time", detailLog.delivery_time ? format(new Date(detailLog.delivery_time), 'PPpp') : '—'],
-                  ["Created", detailLog.created_date ? format(new Date(detailLog.created_date), 'PPpp') : '—'],
-                  ["Fail Reason", detailLog.fail_reason],
-                ].map(([label, val, jsx]) => (
-                  <div key={label}>
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    {jsx || <p className="font-mono text-xs">{val || '—'}</p>}
+          {detailLog && (() => {
+            const bodyIn = detailLog.original_content || detailLog.content || '';
+            const bodyOut = detailLog.content || '';
+            const inInfo = getSmsUnits(bodyIn);
+            const outInfo = getSmsUnits(bodyOut);
+            const ttd = getTTD(detailLog);
+            return (
+              <div className="space-y-4 text-sm">
+                {/* Message analysis banner */}
+                <div className="grid grid-cols-3 gap-2 p-3 bg-muted/40 rounded-lg">
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">Length (chars)</p>
+                    <p className="text-xl font-bold">{inInfo.length}</p>
+                    <p className="text-[10px] text-muted-foreground">max {inInfo.perMsg}/msg</p>
                   </div>
-                ))}
-              </div>
-              <div className="space-y-2">
-                <div className="p-3 bg-muted/40 rounded-lg">
-                  <p className="text-xs font-semibold text-muted-foreground mb-1">Message Body IN (Original)</p>
-                  <p className="text-sm break-all">{detailLog.original_content || detailLog.content || '—'}</p>
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">SMS Units</p>
+                    <p className={`text-xl font-bold ${inInfo.units > 1 ? 'text-orange-600' : 'text-green-600'}`}>{inInfo.units}</p>
+                    <p className="text-[10px] text-muted-foreground">{inInfo.units > 1 ? 'multi-part' : 'single'}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">Encoding</p>
+                    <p className={`text-lg font-bold ${inInfo.isUnicode ? 'text-purple-600' : 'text-gray-600'}`}>{inInfo.isUnicode ? 'Unicode' : 'GSM7'}</p>
+                    <p className="text-[10px] text-muted-foreground">{inInfo.isUnicode ? '70 chars/msg' : '160 chars/msg'}</p>
+                  </div>
                 </div>
-                {detailLog.original_content && detailLog.original_content !== detailLog.content && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <p className="text-xs font-semibold text-amber-700 mb-1">Message Body OUT (Modified)</p>
-                    <p className="text-sm break-all">{detailLog.content}</p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    ["Msg ID (Customer)", detailLog.message_id],
+                    ["Msg ID (Vendor)", detailLog.dest_message_id],
+                    ["Internal ID", detailLog.id?.slice(0, 20)],
+                    ["Destination", detailLog.destination],
+                    ["Status", null, <StatusBadge status={detailLog.status} />],
+                    ["TTD (Time to Delivery)", ttd !== null ? `${ttd}s` : '—'],
+                    ["SMS Type", detailLog.sms_type],
+                    ["Client", detailLog.client_name],
+                    ["Supplier", detailLog.supplier_name],
+                    ["Sender ID", detailLog.sender_id],
+                    ["Country", detailLog.country],
+                    ["MCC / MNC", `${detailLog.mcc || '—'} / ${detailLog.mnc || '—'}`],
+                    ["Parts (stored)", detailLog.parts],
+                    ["Cost (sys)", detailLog.cost?.toFixed(5)],
+                    ["Sell Rate", detailLog.sell_rate?.toFixed(5)],
+                    ["Submit Time", detailLog.submit_time ? format(new Date(detailLog.submit_time), 'PPpp') : '—'],
+                    ["Delivery Time", detailLog.delivery_time ? format(new Date(detailLog.delivery_time), 'PPpp') : '—'],
+                    ["Fail Reason", detailLog.fail_reason],
+                  ].map(([label, val, jsx]) => (
+                    <div key={label}>
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      {jsx || <p className="font-mono text-xs">{val || '—'}</p>}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="p-3 bg-muted/40 rounded-lg">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-semibold text-muted-foreground">Message Body IN (Original)</p>
+                      <div className="flex gap-1">
+                        <Badge variant="outline" className={`text-[10px] py-0 px-1 ${inInfo.isUnicode ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-gray-50 text-gray-600'}`}>{inInfo.isUnicode ? 'Unicode' : 'GSM7'}</Badge>
+                        <Badge variant="outline" className="text-[10px] py-0 px-1">{inInfo.length} chars</Badge>
+                        <Badge variant="outline" className={`text-[10px] py-0 px-1 ${inInfo.units > 1 ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{inInfo.units} unit{inInfo.units > 1 ? 's' : ''}</Badge>
+                      </div>
+                    </div>
+                    <p className="text-sm break-all">{bodyIn || '—'}</p>
                   </div>
-                )}
+                  {detailLog.original_content && detailLog.original_content !== detailLog.content && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-semibold text-amber-700">Message Body OUT (Modified)</p>
+                        <div className="flex gap-1">
+                          <Badge variant="outline" className={`text-[10px] py-0 px-1 ${outInfo.isUnicode ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-gray-50 text-gray-600'}`}>{outInfo.isUnicode ? 'Unicode' : 'GSM7'}</Badge>
+                          <Badge variant="outline" className="text-[10px] py-0 px-1">{outInfo.length} chars</Badge>
+                          <Badge variant="outline" className={`text-[10px] py-0 px-1 ${outInfo.units > 1 ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{outInfo.units} unit{outInfo.units > 1 ? 's' : ''}</Badge>
+                        </div>
+                      </div>
+                      <p className="text-sm break-all">{bodyOut}</p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
