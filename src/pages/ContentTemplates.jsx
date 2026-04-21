@@ -14,18 +14,34 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Upload, Play, FileText, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Play, FileText, RefreshCw, Hash } from "lucide-react";
 import { toast } from "sonner";
 
-// ── Unicode Zero Padding: insert invisible Unicode chars to pad digits ────────
-// "0" → insert 10 or 20 zero-width chars (‍ = U+200D, ​ = U+200B)
-// "1"-"9" → insert same count matching digit value
-const UNICODE_ZERO = '\u200B'; // zero-width space
-const UNICODE_ONE = '\u200D';  // zero-width joiner (counts as "1" visually unique)
+// ── OTP Numeric → Unicode Digit Replacement (Python _replace equivalent) ─────
+// Each digit 0-9 maps to multiple Unicode lookalikes; one index is chosen randomly
+// per message (same index for all digits, like Python: _index = randrange(0, len(...)))
+const DIGIT_REPLACE = {
+  "0": ['𝟘','０','𝟬','𝟶','₀','⁰','₀','🄋','🄌','🄋','🄌','０','౦','0️⃣'],
+  "1": ['𝟙','𝟣','𝟭','𝟷','１','₁','¹','①','❶','➀','➊','⑴','🄂','1️⃣'],
+  "2": ['𝟚','𝟤','𝟮','𝟸','２','₂','²','②','❷','➁','➋','⑵','🄃','2️⃣'],
+  "3": ['𝟛','𝟥','𝟯','𝟹','３','₃','³','③','❸','➂','➌','⑶','🄄','3️⃣'],
+  "4": ['𝟜','𝟦','𝟰','𝟺','４','₄','⁴','④','❹','➃','➍','⑷','🄅','4️⃣'],
+  "5": ['𝟝','𝟧','𝟱','𝟻','５','⒌','⁵','➄','➎','➄','➎','⑸','𝟓','5️⃣'],
+  "6": ['𝟞','𝟨','𝟲','𝟼','６','⒍','⁶','⑥','❻','➅','➏','⑹','🄇','6️⃣'],
+  "7": ['𝟟','𝟩','𝟳','𝟽','７','₇','⁷','⑦','❼','➆','➐','⑺','🄈','7️⃣'],
+  "8": ['𝟠','𝟪','𝟴','𝟾','８','₈','⁸','⑧','❽','➇','➑','⑻','🄉','8️⃣'],
+  "9": ['𝟡','𝟫','𝟵','𝟿','９','₉','⁹','⑨','❾','➈','➒','⑼','🄊','9️⃣'],
+};
 
+// Apply same-index replacement across all digits in the text (mimics Python _index = randrange(...))
+function applyDigitUnicode(text, fixedIndex = null) {
+  const idx = fixedIndex !== null ? fixedIndex : Math.floor(Math.random() * DIGIT_REPLACE["0"].length);
+  return text.replace(/[0-9]/g, d => DIGIT_REPLACE[d][idx % DIGIT_REPLACE[d].length]);
+}
+
+// Legacy padding (kept for reference)
 function applyUnicodePadding(text, padCount = 10) {
-  // Replace digit 0 → digit + padCount invisible zero-width chars
-  // Replace digits 1-9 → digit + (digit * 2) zero-width chars
+  const UNICODE_ZERO = '\u200B';
   return text.replace(/([0-9])/g, (match, digit) => {
     const d = parseInt(digit);
     const count = d === 0 ? padCount : d;
@@ -71,6 +87,12 @@ export default function ContentTemplates() {
   const [unicodePad, setUnicodePad] = useState(10);
   const [unicodeTestInput, setUnicodeTestInput] = useState('Your OTP is 0');
   const [unicodeTestOutput, setUnicodeTestOutput] = useState('');
+  // OTP digit unicode replacement state
+  const [otpInput, setOtpInput] = useState('Your OTP is 123456');
+  const [otpOutputs, setOtpOutputs] = useState([]);
+  const [otpCustomMap, setOtpCustomMap] = useState(
+    Object.entries(DIGIT_REPLACE).map(([digit, variants]) => ({ digit, variants: variants.join('\n') }))
+  );
   const xlsxRef = useRef();
   const qc = useQueryClient();
 
@@ -155,6 +177,7 @@ export default function ContentTemplates() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="templates">Random Content / SID</TabsTrigger>
+          <TabsTrigger value="otp_unicode"><Hash className="w-3 h-3 mr-1" />OTP Digit Unicode</TabsTrigger>
           <TabsTrigger value="unicode">Unicode Padding</TabsTrigger>
           <TabsTrigger value="body_trans">Body Translation</TabsTrigger>
           <TabsTrigger value="voice_trans">Voice Translation</TabsTrigger>
@@ -207,7 +230,91 @@ export default function ContentTemplates() {
           </Card>
         </TabsContent>
 
-        {/* ── Tab 2: Unicode Zero Padding ────────────────────────────── */}
+        {/* ── Tab 2: OTP Digit Unicode Replacement ───────────────────── */}
+        <TabsContent value="otp_unicode" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2"><Hash className="w-4 h-4" />OTP Numeric → Unicode Digit Replacement</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Replaces each digit 0–9 in OTP/SMS with a visually identical Unicode lookalike.<br />
+                One random index is selected per message and applied consistently to all digits (same style throughout).<br />
+                Equivalent to the Python <code className="bg-muted px-1 rounded">_replace</code> table with <code className="bg-muted px-1 rounded">_index = randrange(0, len(...))</code>.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Test area */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Input SMS (with digits)</Label>
+                  <Textarea value={otpInput} onChange={e => setOtpInput(e.target.value)} rows={3} placeholder="Your OTP is 123456" />
+                  <Button onClick={() => {
+                    const samples = Array.from({ length: 8 }, (_, i) => ({
+                      index: i,
+                      text: applyDigitUnicode(otpInput, i)
+                    }));
+                    setOtpOutputs(samples);
+                  }} className="gap-1 w-full"><Play className="w-4 h-4" />Generate 8 Variants (one per index)</Button>
+                </div>
+                <div className="space-y-2">
+                  <Label>Output Variants (each message picks one randomly)</Label>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {otpOutputs.map((o, i) => (
+                      <div key={i} className="flex items-start gap-2 p-2 bg-green-50 border border-green-200 rounded text-sm font-mono">
+                        <span className="text-xs text-green-600 shrink-0 font-bold">#{o.index}</span>
+                        <span className="break-all">{o.text}</span>
+                      </div>
+                    ))}
+                    {otpOutputs.length === 0 && <div className="p-4 text-center text-muted-foreground text-xs">Click "Generate" to see variants</div>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Digit mapping table */}
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Digit → Unicode Variant Map (14 variants per digit)</Label>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-muted">
+                        <th className="p-2 border text-left w-12">Digit</th>
+                        <th className="p-2 border text-left">Unicode Variants (one chosen per message)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(DIGIT_REPLACE).map(([digit, variants]) => (
+                        <tr key={digit} className="hover:bg-accent/30">
+                          <td className="p-2 border font-bold text-center text-lg">{digit}</td>
+                          <td className="p-2 border">
+                            <div className="flex flex-wrap gap-2">
+                              {variants.map((v, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-base" title={`Index ${i}`}>
+                                  {v}
+                                  <span className="text-[9px] text-blue-400">#{i}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800 space-y-1">
+                <p className="font-bold">How it works:</p>
+                <p>• Input: <code className="bg-blue-100 px-1 rounded">Your OTP is 12345</code></p>
+                <p>• Random index (e.g. 3) picked once per message.</p>
+                <p>• All digits replaced using that index: 1→𝟷, 2→𝟸, 3→𝟹, 4→𝟺, 5→𝟻</p>
+                <p>• Output: <code className="bg-blue-100 px-1 rounded">Your OTP is 𝟷𝟸𝟹𝟺𝟻</code></p>
+                <p>• Visually identical to humans, bypasses plain-text firewall digit matching.</p>
+                <p>• With 14 variants per digit, there are 14 possible output styles per message.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab 3: Unicode Zero Padding ────────────────────────────── */}
         <TabsContent value="unicode" className="mt-4 space-y-4">
           <Card>
             <CardHeader>

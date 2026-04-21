@@ -236,7 +236,7 @@ export default function Rates() {
                             {entityList.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
                           </select>
                         ) : (
-                          <span className="block px-2 py-1 cursor-pointer hover:bg-blue-50 rounded min-h-[24px]" onDoubleClick={() => startEdit(r.id, "entity_name", r.entity_name)}>{r.entity_name || <span className="text-muted-foreground italic">double-click</span>}</span>
+                          <span className="block px-2 py-1 cursor-pointer hover:bg-blue-50 rounded min-h-[24px]" onDoubleClick={() => startEdit(r.id, "entity_name", r.entity_name)}>{r.entity_name || <span className="text-muted-foreground text-xs">—</span>}</span>
                         )}
                       </td>
                       <td className="p-1 border-r"><span className="block px-2 py-1">{r.country}</span></td>
