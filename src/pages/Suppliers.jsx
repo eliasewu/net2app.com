@@ -13,8 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi } from "lucide-react";
+import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi, BookOpen } from "lucide-react";
 import { toast } from "sonner";
+import HttpApiTemplates from "@/components/suppliers/HttpApiTemplates";
 
 const SUPPLIER_CATEGORIES = [
   { key: "sms", label: "SMS Providers", icon: MessageSquare, color: "bg-blue-50 text-blue-700 border-blue-200" },
@@ -23,7 +24,16 @@ const SUPPLIER_CATEGORIES = [
   { key: "telegram", label: "Telegram API", icon: Wifi, color: "bg-sky-50 text-sky-700 border-sky-200" },
 ];
 
-const SMS_PROVIDERS = ["Nexmo (Vonage)", "Bandwidth", "Infobip", "Twilio", "Borno API", "Custom HTTP", "SMPP"];
+const SMS_PROVIDERS = [
+  "Twilio", "Vonage (Nexmo)", "Plivo", "Sinch", "Infobip", "MessageBird (Bird)", "Clickatell",
+  "SMSala", "SMSCountry", "Message Central", "Telnyx", "TextMagic", "EasySendSMS", "BulkSMS",
+  "ClickSend", "D7 Networks", "SMSGlobal", "Route Mobile", "Cequens", "TextLocal", "Esendex",
+  "Amazon SNS", "Telesign", "Kaleyra", "CM.com", "Messente", "Bandwidth", "Prelude", "MSG91",
+  "Africa's Talking", "TheTexting", "SendSMSGate", "SMS.to", "Textellent", "iSmartCall",
+  "Doo.ae", "Wisoft Solutions", "Siratel", "Bulk SMS Global", "ClockworkSMS", "MessageMedia",
+  "Notifyre", "EZ Texting", "SimpleTexting", "Trumpia", "Flowroute", "TrueDialog", "Mitto",
+  "2Factor", "Teletalk BD", "Borno API", "Custom HTTP", "SMPP"
+];
 const VOICE_PROVIDERS = ["Borno VoiceOTP", "Twilio Voice", "Custom SIP", "Asterisk"];
 const WHATSAPP_PROVIDERS = ["WhatsApp Business API", "Twilio WhatsApp", "360dialog", "Custom API"];
 const TELEGRAM_PROVIDERS = ["Telegram Bot API", "Custom API"];
@@ -123,12 +133,15 @@ export default function Suppliers() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="flex-wrap h-auto gap-1">
           {SUPPLIER_CATEGORIES.map(cat => (
             <TabsTrigger key={cat.key} value={cat.key}>
               <cat.icon className="w-3.5 h-3.5 mr-1.5" />{cat.label}
             </TabsTrigger>
           ))}
+          <TabsTrigger value="http_library">
+            <BookOpen className="w-3.5 h-3.5 mr-1.5" />HTTP API Library
+          </TabsTrigger>
         </TabsList>
 
         {SUPPLIER_CATEGORIES.map(cat => (
@@ -186,9 +199,12 @@ export default function Suppliers() {
             </Card>
           </TabsContent>
         ))}
+
+        <TabsContent value="http_library" className="mt-4">
+          <HttpApiTemplates />
+        </TabsContent>
       </Tabs>
 
-      {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
