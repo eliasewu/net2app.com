@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, Upload, Play, FileText, RefreshCw, Hash } from "lucide-react";
 import { toast } from "sonner";
+import OtpUnicodePresets from "@/components/content/OtpUnicodePresets";
 
 // ── OTP Numeric → Unicode Digit Replacement (Python _replace equivalent) ─────
 // Each digit 0-9 maps to multiple Unicode lookalikes; one index is chosen randomly
@@ -178,6 +179,7 @@ export default function ContentTemplates() {
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="templates">Random Content / SID</TabsTrigger>
           <TabsTrigger value="otp_unicode"><Hash className="w-3 h-3 mr-1" />OTP Digit Unicode</TabsTrigger>
+          <TabsTrigger value="otp_presets"><Hash className="w-3 h-3 mr-1" />OTP Presets (DB)</TabsTrigger>
           <TabsTrigger value="unicode">Unicode Padding</TabsTrigger>
           <TabsTrigger value="body_trans">Body Translation</TabsTrigger>
           <TabsTrigger value="voice_trans">Voice Translation</TabsTrigger>
@@ -312,6 +314,11 @@ export default function ContentTemplates() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Tab: OTP Presets (saved to DB) ────────────────────────── */}
+        <TabsContent value="otp_presets" className="mt-4">
+          <OtpUnicodePresets />
         </TabsContent>
 
         {/* ── Tab 3: Unicode Zero Padding ────────────────────────────── */}

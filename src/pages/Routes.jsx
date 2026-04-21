@@ -10,8 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, RotateCcw, Ban } from "lucide-react";
+import { Plus, Pencil, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Routes() {
@@ -24,6 +23,8 @@ export default function Routes() {
   const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: () => base44.entities.Client.list(), initialData: [] });
   const { data: suppliers = [] } = useQuery({ queryKey: ['suppliers'], queryFn: () => base44.entities.Supplier.list(), initialData: [] });
   const { data: mccmncs = [] } = useQuery({ queryKey: ['mccmnc'], queryFn: () => base44.entities.MccMnc.list(), initialData: [] });
+  const { data: otpPresets = [] } = useQuery({ queryKey: ['otp-presets'], queryFn: () => base44.entities.OtpUnicodePreset.list(), initialData: [] });
+  const { data: contentTemplates = [] } = useQuery({ queryKey: ['content-templates'], queryFn: () => base44.entities.ContentTemplate.list(), initialData: [] });
 
   const createMut = useMutation({
     mutationFn: (d) => base44.entities.Route.create(d),
@@ -61,7 +62,7 @@ export default function Routes() {
     updateMut.mutate({ id: route.id, data: { ...route, is_auto_blocked: false, fail_count: 0, status: 'active' } });
   };
 
-  const emptyForm = { name: '', client_id: '', supplier_id: '', backup_supplier_id: '', mcc: '', mnc: '', prefix: '', routing_mode: 'Priority', status: 'active', auto_block_threshold: 10 };
+  const emptyForm = { name: '', client_id: '', supplier_id: '', backup_supplier_id: '', mcc: '', mnc: '', prefix: '', routing_mode: 'Priority', status: 'active', auto_block_threshold: 10, otp_unicode_preset_id: '', content_template_id: '' };
 
   return (
     <div className="space-y-6">
@@ -81,8 +82,9 @@ export default function Routes() {
                 <TableHead>Supplier</TableHead>
                 <TableHead>MCC/MNC</TableHead>
                 <TableHead>Mode</TableHead>
-                <TableHead>Fails</TableHead>
-                <TableHead>Status</TableHead>
+                    <TableHead>OTP Preset</TableHead>
+                    <TableHead>Fails</TableHead>
+                    <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -94,6 +96,13 @@ export default function Routes() {
                   <TableCell>{r.supplier_name}</TableCell>
                   <TableCell className="font-mono text-sm">{r.mcc}/{r.mnc}</TableCell>
                   <TableCell><span className="text-xs bg-muted px-2 py-1 rounded">{r.routing_mode}</span></TableCell>
+                  <TableCell>
+                    {r.otp_unicode_preset_id ? (
+                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
+                        {otpPresets.find(p => p.id === r.otp_unicode_preset_id)?.name || '—'}
+                      </span>
+                    ) : <span className="text-xs text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell className={r.fail_count >= (r.auto_block_threshold || 10) ? 'text-red-600 font-bold' : ''}>{r.fail_count || 0}</TableCell>
                   <TableCell><StatusBadge status={r.is_auto_blocked ? 'blocked' : r.status} /></TableCell>
                   <TableCell className="text-right">
@@ -108,7 +117,7 @@ export default function Routes() {
                 </TableRow>
               ))}
               {routes.length === 0 && (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-12">No routes configured</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-12">No routes configured</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -174,6 +183,26 @@ export default function Routes() {
               <Select value={form.status || 'active'} onValueChange={(v) => set('status', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>OTP Unicode Preset</Label>
+              <Select value={form.otp_unicode_preset_id || ''} onValueChange={(v) => set('otp_unicode_preset_id', v)}>
+                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={null}>None</SelectItem>
+                  {otpPresets.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Content Template</Label>
+              <Select value={form.content_template_id || ''} onValueChange={(v) => set('content_template_id', v)}>
+                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={null}>None</SelectItem>
+                  {contentTemplates.filter(t => t.destination_prefix !== '__body_trans__').map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
           </div>

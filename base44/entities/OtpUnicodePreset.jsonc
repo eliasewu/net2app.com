@@ -1,0 +1,33 @@
+{
+  "name": "OtpUnicodePreset",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Preset name e.g. Style-A, Bangladesh-1"
+    },
+    "description": {
+      "type": "string"
+    },
+    "digit_map": {
+      "type": "string",
+      "description": "JSON object mapping 0-9 to array of unicode variants"
+    },
+    "apply_to_suppliers": {
+      "type": "string",
+      "description": "JSON array of supplier IDs this preset applies to"
+    },
+    "apply_to_routes": {
+      "type": "string",
+      "description": "JSON array of route IDs this preset applies to"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "name",
+    "digit_map"
+  ]
+}

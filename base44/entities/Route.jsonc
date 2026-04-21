@@ -64,17 +64,23 @@
     },
     "fail_count": {
       "type": "number",
-      "default": 0,
-      "description": "Consecutive fail count"
+      "default": 0
     },
     "auto_block_threshold": {
       "type": "number",
-      "default": 10,
-      "description": "Auto block after N consecutive fails"
+      "default": 10
     },
     "is_auto_blocked": {
       "type": "boolean",
       "default": false
+    },
+    "otp_unicode_preset_id": {
+      "type": "string",
+      "description": "OtpUnicodePreset ID to apply on this route"
+    },
+    "content_template_id": {
+      "type": "string",
+      "description": "ContentTemplate ID to apply on this route"
     }
   },
   "required": [

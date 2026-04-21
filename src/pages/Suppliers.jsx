@@ -13,15 +13,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi, BookOpen } from "lucide-react";
+import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi, BookOpen, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import HttpApiTemplates from "@/components/suppliers/HttpApiTemplates";
+import DeviceConnectTab from "@/components/suppliers/DeviceConnectTab";
 
 const SUPPLIER_CATEGORIES = [
   { key: "sms", label: "SMS Providers", icon: MessageSquare, color: "bg-blue-50 text-blue-700 border-blue-200" },
   { key: "voice_otp", label: "Voice OTP", icon: Phone, color: "bg-green-50 text-green-700 border-green-200" },
   { key: "whatsapp", label: "WhatsApp API", icon: Send, color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   { key: "telegram", label: "Telegram API", icon: Wifi, color: "bg-sky-50 text-sky-700 border-sky-200" },
+  { key: "device", label: "Device Connect", icon: Smartphone, color: "bg-purple-50 text-purple-700 border-purple-200" },
 ];
 
 const SMS_PROVIDERS = [
@@ -37,6 +39,7 @@ const SMS_PROVIDERS = [
 const VOICE_PROVIDERS = ["Borno VoiceOTP", "Twilio Voice", "Custom SIP", "Asterisk"];
 const WHATSAPP_PROVIDERS = ["WhatsApp Business API", "Twilio WhatsApp", "360dialog", "Custom API"];
 const TELEGRAM_PROVIDERS = ["Telegram Bot API", "Custom API"];
+const DEVICE_PROVIDERS = ["WhatsApp Device", "Telegram Device", "IMO Device"];
 
 const emptySupplier = {
   name: "", category: "sms", provider_type: "", contact_person: "", email: "", phone: "",
@@ -100,6 +103,7 @@ export default function Suppliers() {
     if (cat === "voice_otp") return VOICE_PROVIDERS;
     if (cat === "whatsapp") return WHATSAPP_PROVIDERS;
     if (cat === "telegram") return TELEGRAM_PROVIDERS;
+    if (cat === "device") return DEVICE_PROVIDERS;
     return [];
   };
 
@@ -139,12 +143,15 @@ export default function Suppliers() {
               <cat.icon className="w-3.5 h-3.5 mr-1.5" />{cat.label}
             </TabsTrigger>
           ))}
+            <TabsTrigger value="device_connect">
+            <Smartphone className="w-3.5 h-3.5 mr-1.5" />Device Connect
+          </TabsTrigger>
           <TabsTrigger value="http_library">
             <BookOpen className="w-3.5 h-3.5 mr-1.5" />HTTP API Library
           </TabsTrigger>
         </TabsList>
 
-        {SUPPLIER_CATEGORIES.map(cat => (
+        {SUPPLIER_CATEGORIES.filter(cat => cat.key !== "device").map(cat => (
           <TabsContent key={cat.key} value={cat.key} className="mt-4">
             <Card>
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
@@ -199,6 +206,10 @@ export default function Suppliers() {
             </Card>
           </TabsContent>
         ))}
+
+        <TabsContent value="device_connect" className="mt-4">
+          <DeviceConnectTab />
+        </TabsContent>
 
         <TabsContent value="http_library" className="mt-4">
           <HttpApiTemplates />
@@ -314,6 +325,27 @@ export default function Suppliers() {
               </div>
             )}
 
+            {/* OTP Unicode Preset */}
+            <div className="space-y-3 p-3 bg-orange-50 rounded-lg border border-orange-100">
+              <p className="text-xs font-semibold text-orange-800">🔡 OTP Unicode Digit Replacement</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">OTP Unicode Preset Name</Label>
+                  <Input value={form.otp_unicode_preset || ""} onChange={e => set('otp_unicode_preset', e.target.value)} placeholder="e.g. Style-A (must match preset name)" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Enable OTP Unicode on this Supplier</Label>
+                  <Select value={form.otp_unicode_enabled ? "yes" : "no"} onValueChange={v => set('otp_unicode_enabled', v === "yes")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Enabled</SelectItem>
+                      <SelectItem value="no">Disabled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-xs text-orange-700">Manage presets in Content → OTP Presets (DB) tab. Enter exact preset name above.</p>
+            </div>
             <div className="space-y-1.5"><Label>Notes</Label><Textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} /></div>
           </div>
           <DialogFooter>

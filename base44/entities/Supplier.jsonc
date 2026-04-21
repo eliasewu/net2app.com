@@ -11,7 +11,8 @@
         "sms",
         "voice_otp",
         "whatsapp",
-        "telegram"
+        "telegram",
+        "device"
       ],
       "default": "sms"
     },
@@ -34,7 +35,8 @@
         "HTTP",
         "SMPP",
         "SIP",
-        "SDK"
+        "SDK",
+        "DEVICE"
       ],
       "default": "HTTP"
     },
@@ -109,6 +111,18 @@
     "tps_limit": {
       "type": "number",
       "default": 100
+    },
+    "content_template_id": {
+      "type": "string",
+      "description": "Linked ContentTemplate ID for OTP digit unicode / body translation"
+    },
+    "otp_unicode_preset": {
+      "type": "string",
+      "description": "Name of OTP Unicode preset to apply on this supplier"
+    },
+    "otp_unicode_enabled": {
+      "type": "boolean",
+      "default": false
     },
     "notes": {
       "type": "string"
