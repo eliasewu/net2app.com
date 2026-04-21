@@ -33,6 +33,8 @@ import BillingInvoices from './pages/BillingInvoices';
 import DeployGuide from './pages/DeployGuide';
 import TenantManagement from './pages/TenantManagement';
 import DeviceConnect from './pages/DeviceConnect';
+import LandingPage from './pages/LandingPage';
+import LandingAdmin from './pages/LandingAdmin';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -49,13 +51,12 @@ const AuthenticatedApp = () => {
   }
 
   if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    } else if (authError.type === 'auth_required') {
-      navigateToLogin();
-      return null;
+      if (authError.type === 'user_not_registered') {
+        return <UserNotRegisteredError />;
+      } else if (authError.type === 'auth_required') {
+        return <LandingPage />;
+      }
     }
-  }
 
   return (
     <Routes>
@@ -86,6 +87,7 @@ const AuthenticatedApp = () => {
         <Route path="/deploy-guide" element={<DeployGuide />} />
         <Route path="/tenants" element={<TenantManagement />} />
         <Route path="/device-connect" element={<DeviceConnect />} />
+        <Route path="/landing-admin" element={<LandingAdmin />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

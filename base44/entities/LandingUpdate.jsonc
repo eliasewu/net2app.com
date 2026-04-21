@@ -1,0 +1,38 @@
+{
+  "name": "LandingUpdate",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "news",
+        "event",
+        "offer",
+        "maintenance"
+      ],
+      "default": "news"
+    },
+    "event_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "sort_order": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "title",
+    "body"
+  ]
+}

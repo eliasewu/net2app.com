@@ -4,7 +4,7 @@ import {
   MessageSquare, BarChart3, FileText, Settings, Shield,
   Phone, Bell, FileCode, Monitor, ChevronLeft, ChevronRight,
   Radio, Zap, ArrowRightLeft, ShieldCheck, Megaphone, Server,
-  PhoneCall, ChevronDown, ChevronUp, Wifi, BookOpen, QrCode, GripVertical
+  PhoneCall, ChevronDown, ChevronUp, Wifi, BookOpen, QrCode, GripVertical, Globe
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -61,6 +61,7 @@ const DEFAULT_NAV_GROUPS = [
       { label: "Settings", icon: Settings, path: "/settings" },
       { label: "Tenants", icon: Users, path: "/tenants" },
       { label: "User Mgmt", icon: Shield, path: "/users" },
+      { label: "Website Manager", icon: Globe, path: "/landing-admin" },
     ]
   }
 ];
