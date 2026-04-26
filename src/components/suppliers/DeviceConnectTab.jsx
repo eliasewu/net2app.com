@@ -168,17 +168,29 @@ export default function DeviceConnectTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h3 className="font-semibold">Device Connect — Scan QR to Link</h3>
+          <h3 className="font-semibold">Device Connect — Scan QR to Link as SMS Supplier</h3>
           <p className="text-xs text-muted-foreground">
-            Devices connected here are saved as Suppliers (category: Device) and can be assigned to Routes.
+            WhatsApp, Telegram, and IMO devices linked here act as <strong>SMS Suppliers</strong> — assignable to Routes for message delivery.
           </p>
         </div>
         <Badge variant="outline" className="gap-1">
           <Wifi className="w-3 h-3" />
           {devices.length} device{devices.length !== 1 ? "s" : ""} linked
         </Badge>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {[
+          { ch: "whatsapp", label: "WhatsApp Device", desc: "Send SMS via WhatsApp messages — appears as DEVICE supplier in Routes", color: "bg-green-50 border-green-200 text-green-800" },
+          { ch: "telegram", label: "Telegram Device", desc: "Send SMS via Telegram messages — appears as DEVICE supplier in Routes", color: "bg-blue-50 border-blue-200 text-blue-800" },
+          { ch: "imo", label: "IMO Device", desc: "Send SMS via IMO messages — acts as SMS supplier, assignable to Routes", color: "bg-purple-50 border-purple-200 text-purple-800" },
+        ].map(item => (
+          <div key={item.ch} className={`text-xs p-3 rounded-lg border ${item.color}`}>
+            <p className="font-semibold mb-0.5">{item.label}</p>
+            <p>{item.desc}</p>
+          </div>
+        ))}
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -311,13 +323,14 @@ export default function DeviceConnectTab() {
             </div>
 
             <Card className="bg-amber-50 border-amber-200 mt-4">
-              <CardContent className="p-4 text-xs text-amber-800 space-y-1">
-                <p className="font-bold">⚠️ Production Integration Notes:</p>
-                <p>• QR code contains a real scannable deep-link token for {ch.label}.</p>
-                <p>• For full session bridging, run a local <strong>{ch.key === "whatsapp" ? "WPPConnect / Baileys" : ch.key === "telegram" ? "TDLib / GramJS" : "IMO Web Protocol"}</strong> server that generates the actual auth token and listens for scan events.</p>
-                <p>• Once scanned, the session server calls back to mark the device active. Use "Mark as Connected ✓" after the phone confirms the scan.</p>
-                <p>• Connected devices appear as Suppliers in Routes, allowing you to route SMS/messages through this {ch.label} account.</p>
-              </CardContent>
+            <CardContent className="p-4 text-xs text-amber-800 space-y-1">
+            <p className="font-bold">⚠️ Production Notes — {ch.label} as SMS Supplier</p>
+            <p>• QR code contains a scannable deep-link token for {ch.label}.</p>
+            <p>• Bridge server required: <strong>{ch.key === "whatsapp" ? "WPPConnect or Baileys (Node.js)" : ch.key === "telegram" ? "TDLib / GramJS (Node.js/Python)" : "IMO Web Protocol bridge"}</strong> — runs on server, handles QR auth + message sending.</p>
+            <p>• Once scanned, bridge marks device active → saved as Supplier (category: device, connection_type: DEVICE).</p>
+            <p>• <strong>Routing:</strong> Assign this device supplier to any Route. Outbound SMS is forwarded to the bridge which delivers via {ch.label}.</p>
+            {ch.key === "imo" && <p>• <strong>IMO:</strong> Acts as an SMS delivery channel — messages sent through IMO account to destination numbers. Suitable for markets where IMO is widely used (e.g. Bangladesh, Middle East).</p>}
+            </CardContent>
             </Card>
           </TabsContent>
         ))}

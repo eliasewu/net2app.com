@@ -19,11 +19,11 @@ import HttpApiTemplates from "@/components/suppliers/HttpApiTemplates";
 import DeviceConnectTab from "@/components/suppliers/DeviceConnectTab";
 
 const SUPPLIER_CATEGORIES = [
-  { key: "sms", label: "SMS Providers", icon: MessageSquare, color: "bg-blue-50 text-blue-700 border-blue-200" },
+  { key: "sms", label: "SMS (SMPP/HTTP)", icon: MessageSquare, color: "bg-blue-50 text-blue-700 border-blue-200" },
   { key: "voice_otp", label: "Voice OTP", icon: Phone, color: "bg-green-50 text-green-700 border-green-200" },
   { key: "whatsapp", label: "WhatsApp API", icon: Send, color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   { key: "telegram", label: "Telegram API", icon: Wifi, color: "bg-sky-50 text-sky-700 border-sky-200" },
-  { key: "device", label: "Device Connect", icon: Smartphone, color: "bg-purple-50 text-purple-700 border-purple-200" },
+  { key: "device", label: "Device (WA/TG/IMO)", icon: Smartphone, color: "bg-purple-50 text-purple-700 border-purple-200" },
 ];
 
 const SMS_PROVIDERS = [
@@ -143,73 +143,77 @@ export default function Suppliers() {
               <cat.icon className="w-3.5 h-3.5 mr-1.5" />{cat.label}
             </TabsTrigger>
           ))}
-            <TabsTrigger value="device_connect">
-            <Smartphone className="w-3.5 h-3.5 mr-1.5" />Device Connect
-          </TabsTrigger>
           <TabsTrigger value="http_library">
             <BookOpen className="w-3.5 h-3.5 mr-1.5" />HTTP API Library
           </TabsTrigger>
         </TabsList>
 
-        {SUPPLIER_CATEGORIES.filter(cat => cat.key !== "device").map(cat => (
+        {SUPPLIER_CATEGORIES.map(cat => (
           <TabsContent key={cat.key} value={cat.key} className="mt-4">
-            <Card>
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <cat.icon className="w-4 h-4" />{cat.label}
-                  <Badge variant="outline">{filtered.length}</Badge>
-                </CardTitle>
-                <Button size="sm" onClick={() => openAdd(cat.key)}><Plus className="w-3.5 h-3.5 mr-1" />Add</Button>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Connection</TableHead>
-                      <TableHead>Priority</TableHead>
-                      <TableHead>TPS</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filtered.map((s) => (
-                      <TableRow key={s.id}>
-                        <TableCell className="font-medium">{s.name}</TableCell>
-                        <TableCell>
-                          <span className="text-xs font-mono bg-muted px-2 py-1 rounded">{s.provider_type || "—"}</span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs bg-muted px-2 py-1 rounded">{s.connection_type}</span>
-                        </TableCell>
-                        <TableCell>{s.priority}</TableCell>
-                        <TableCell>{s.tps_limit}</TableCell>
-                        <TableCell><StatusBadge status={s.status} /></TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => openEdit(s)}><Pencil className="w-4 h-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => deleteMut.mutate(s.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                          </div>
-                        </TableCell>
+            {cat.key === "device" ? (
+              /* Device tab: show QR connect panel + table of connected devices */
+              <div className="space-y-4">
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
+                  <p className="font-semibold mb-1">📱 Device Connect — WhatsApp / Telegram / IMO as SMS Supplier</p>
+                  <p className="text-xs">Scan QR code with your phone to link a device. Once connected, it appears as a Supplier in Routes and can deliver SMS messages via WhatsApp, Telegram, or IMO channels.</p>
+                </div>
+                <DeviceConnectTab />
+              </div>
+            ) : (
+              <Card>
+                <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <cat.icon className="w-4 h-4" />{cat.label}
+                    <Badge variant="outline">{suppliers.filter(s => (s.category || "sms") === cat.key).length}</Badge>
+                  </CardTitle>
+                  <Button size="sm" onClick={() => openAdd(cat.key)}><Plus className="w-3.5 h-3.5 mr-1" />Add</Button>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Connection</TableHead>
+                        <TableHead>Priority</TableHead>
+                        <TableHead>TPS</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    ))}
-                    {filtered.length === 0 && (
-                      <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-12">
-                        No {cat.label} suppliers yet. Click "Add Supplier" to add one.
-                      </TableCell></TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                    </TableHeader>
+                    <TableBody>
+                      {suppliers.filter(s => (s.category || "sms") === cat.key).map((s) => (
+                        <TableRow key={s.id}>
+                          <TableCell className="font-medium">{s.name}</TableCell>
+                          <TableCell>
+                            <span className="text-xs font-mono bg-muted px-2 py-1 rounded">{s.provider_type || "—"}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs bg-muted px-2 py-1 rounded">{s.connection_type}</span>
+                          </TableCell>
+                          <TableCell>{s.priority}</TableCell>
+                          <TableCell>{s.tps_limit}</TableCell>
+                          <TableCell><StatusBadge status={s.status} /></TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => openEdit(s)}><Pencil className="w-4 h-4" /></Button>
+                              <Button variant="ghost" size="icon" onClick={() => deleteMut.mutate(s.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {suppliers.filter(s => (s.category || "sms") === cat.key).length === 0 && (
+                        <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-12">
+                          No {cat.label} suppliers yet. Click "Add" to add one.
+                        </TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         ))}
-
-        <TabsContent value="device_connect" className="mt-4">
-          <DeviceConnectTab />
-        </TabsContent>
 
         <TabsContent value="http_library" className="mt-4">
           <HttpApiTemplates />
@@ -271,6 +275,7 @@ export default function Suppliers() {
                   <SelectItem value="SMPP">SMPP</SelectItem>
                   <SelectItem value="SIP">SIP / VoIP</SelectItem>
                   <SelectItem value="SDK">SDK / Library</SelectItem>
+                  <SelectItem value="DEVICE">Device (WA/TG/IMO)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -251,23 +251,71 @@ CREATE TABLE IF NOT EXISTS clients (
   INDEX(tenant_id), INDEX(status)
 ) ENGINE=InnoDB;
 
--- SMS Suppliers
+-- SMS Suppliers (SMPP, HTTP, WhatsApp API, Telegram API, Device: WA/TG/IMO via QR)
 CREATE TABLE IF NOT EXISTS suppliers (
-  id           VARCHAR(64) PRIMARY KEY,
-  tenant_id    VARCHAR(64) NOT NULL,
-  name         VARCHAR(128),
-  connection_type ENUM('HTTP','SMPP','SIP') DEFAULT 'HTTP',
-  smpp_ip      VARCHAR(64),
-  smpp_port    INT DEFAULT 2775,
-  smpp_username VARCHAR(64),
-  smpp_password VARCHAR(128),
-  http_url     TEXT,
-  api_key      VARCHAR(256),
-  status       ENUM('active','inactive','blocked') DEFAULT 'active',
-  priority     INT DEFAULT 1,
-  tps_limit    INT DEFAULT 100,
-  created_at   DATETIME DEFAULT NOW(),
-  INDEX(tenant_id)
+  id              VARCHAR(64) PRIMARY KEY,
+  tenant_id       VARCHAR(64) NOT NULL,
+  name            VARCHAR(128),
+  category        ENUM('sms','voice_otp','whatsapp','telegram','device') DEFAULT 'sms',
+  provider_type   VARCHAR(128),  -- e.g. Twilio, WPPConnect, Baileys, GramJS, IMO Device
+  connection_type ENUM('HTTP','SMPP','SIP','SDK','DEVICE') DEFAULT 'HTTP',
+  -- HTTP/API credentials
+  http_url        TEXT,
+  http_method     ENUM('GET','POST') DEFAULT 'POST',
+  http_params     TEXT,
+  api_key         VARCHAR(256),
+  api_secret      VARCHAR(256),
+  account_sid     VARCHAR(128),
+  auth_token      VARCHAR(256),
+  dlr_url         TEXT,
+  -- SMPP credentials
+  smpp_ip         VARCHAR(64),
+  smpp_port       INT DEFAULT 2775,
+  smpp_username   VARCHAR(64),
+  smpp_password   VARCHAR(128),
+  -- SIP credentials
+  sip_server      VARCHAR(128),
+  sip_port        INT DEFAULT 5060,
+  sip_username    VARCHAR(64),
+  sip_password    VARCHAR(128),
+  -- Device session (WhatsApp/Telegram/IMO connected via QR)
+  device_channel  ENUM('whatsapp','telegram','imo') DEFAULT NULL,
+  device_phone    VARCHAR(32),   -- phone number linked to the device
+  device_session  TEXT,          -- session token / auth blob (from WPPConnect/GramJS)
+  device_status   ENUM('pending','connected','disconnected','expired') DEFAULT 'pending',
+  device_linked_at DATETIME,
+  -- OTP Unicode
+  otp_unicode_preset VARCHAR(128),
+  otp_unicode_enabled TINYINT(1) DEFAULT 0,
+  -- Common
+  status          ENUM('active','inactive','blocked') DEFAULT 'active',
+  priority        INT DEFAULT 1,
+  tps_limit       INT DEFAULT 100,
+  contact_person  VARCHAR(128),
+  email           VARCHAR(128),
+  phone           VARCHAR(32),
+  notes           TEXT,
+  created_at      DATETIME DEFAULT NOW(),
+  INDEX(tenant_id), INDEX(category), INDEX(connection_type), INDEX(device_channel)
+) ENGINE=InnoDB;
+
+-- Device session webhook log (QR scan events from WPPConnect/GramJS/IMO bridge)
+CREATE TABLE IF NOT EXISTS device_sessions (
+  id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id       VARCHAR(64) NOT NULL,
+  supplier_id     VARCHAR(64),
+  channel         ENUM('whatsapp','telegram','imo') NOT NULL,
+  session_name    VARCHAR(128),
+  phone           VARCHAR(32),
+  qr_token        VARCHAR(256),
+  session_data    TEXT,    -- auth blob returned by bridge after QR scan
+  status          ENUM('pending','active','expired','disconnected') DEFAULT 'pending',
+  connected_at    DATETIME,
+  disconnected_at DATETIME,
+  last_activity   DATETIME,
+  notes           TEXT,
+  created_at      DATETIME DEFAULT NOW(),
+  INDEX(tenant_id, channel), INDEX(supplier_id), INDEX(status)
 ) ENGINE=InnoDB;
 
 -- Routes
@@ -883,6 +931,7 @@ const ARCH = `
   │  Tenants → HTTP POST to port 4000+  (nginx → smsbox)           │
   │  Suppliers ← SMPP connect out       (bearerbox SMPP client)    │
   │  SIM Boxes ← AT/SMPP devices        (bearerbox bearer)         │
+  │  Device Suppliers ← WA/TG/IMO QR    (WPPConnect/GramJS bridge) │
   │  Super Admin → manages all tenants, rates, routes, billing      │
   │  Tenant Admin → manages their own clients, suppliers, etc.      │
   └─────────────────────────────────────────────────────────────────┘
@@ -1014,7 +1063,7 @@ mmcli -L
         <TabsContent value="database" className="mt-4 space-y-4">
           <InfoBox color="blue">
             <p className="font-bold">One MariaDB instance — all tenants, all data.</p>
-            <p>Tables: clients, suppliers, routes, rates, sms_log, cdr, ip_access, invoices, billing_summary, voip_platforms — all with <code>tenant_id</code> column.</p>
+            <p>Tables: clients, suppliers (SMPP/HTTP/WhatsApp/Telegram/IMO Device), device_sessions, routes, rates, sms_log, cdr, ip_access, invoices, billing_summary, voip_platforms — all with <code>tenant_id</code> column.</p>
             <p>Super Admin queries globally. Tenants query through VIEWs filtered by their tenant_id.</p>
           </InfoBox>
           <CodeBlock label="Step 4 — Master Database Schema (run as root)" code={SCRIPTS.mariadb_master} />
