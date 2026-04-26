@@ -25,9 +25,21 @@ const emptyClient = {
 };
 
 const BILLING_TYPE_INFO = {
-  send:     { label: "Send Billing",     color: "text-orange-600 bg-orange-50 border-orange-200", desc: "Balance deducted when message leaves your system / hits gateway (regardless of acceptance)." },
-  submit:   { label: "Submit Billing",   color: "text-blue-600 bg-blue-50 border-blue-200",     desc: "Balance deducted when SMSC accepts the message and returns a Message ID. Rejected messages are not billed." },
-  delivery: { label: "Delivery Billing", color: "text-green-600 bg-green-50 border-green-200",  desc: "Balance deducted only when a DELIVRD DLR is received. Most client-friendly; rare in wholesale markets." },
+  send:     {
+    label: "Send Billing",
+    color: "text-orange-600 bg-orange-50 border-orange-200",
+    desc: "Client charged when message is accepted by the gateway (on send). If message fails to submit or returns a send error after this point, the charge still applies. Supplier is only charged on successful submit (Message ID received) — send errors are NOT charged to supplier.",
+  },
+  submit:   {
+    label: "Submit Billing",
+    color: "text-blue-600 bg-blue-50 border-blue-200",
+    desc: "Client charged only when SMSC returns a Message ID (successful submit). If message fails to submit, errors on send, or is rejected — client is NOT charged. Supplier is also only charged on successful submit; any submit fail or send error means supplier is NOT charged.",
+  },
+  delivery: {
+    label: "Delivery Billing",
+    color: "text-green-600 bg-green-50 border-green-200",
+    desc: "Client charged only on DELIVRD DLR. If message is undelivered, failed, or DLR is absent — client is NOT charged. Exception: if Force DLR is enabled, the synthetic DELIVRD sent to client counts as billable. Supplier is NOT charged on undelivered or failed DLR — only on successful submit.",
+  },
 };
 
 export default function Clients() {
@@ -272,9 +284,32 @@ export default function Clients() {
               </div>
               {form.force_dlr && (
                 <div className="text-xs px-3 py-2 rounded-lg border bg-yellow-50 border-yellow-200 text-yellow-700">
-                  ⚠️ Force DLR is ON: a synthetic "Delivered" DLR will be sent to the client's DLR URL {form.force_dlr_timeout} seconds after submission, regardless of actual delivery status.
+                  ⚠️ Force DLR is ON: a synthetic "Delivered" DLR will be sent to the client's DLR URL {form.force_dlr_timeout}s after submission, regardless of actual delivery. Client will be charged for this as a billable delivery.
                 </div>
               )}
+
+              {/* Billing Rules Summary */}
+              <div className="mt-2 p-3 rounded-lg border border-slate-200 bg-white space-y-2">
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">📋 Billing Rules Summary</p>
+                <div className="grid grid-cols-1 gap-1.5 text-[11px]">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-green-600 font-bold shrink-0">CLIENT ✓</span>
+                    <span className="text-slate-600">Charged on: <span className="font-semibold">{form.billing_type === 'send' ? 'gateway receive' : form.billing_type === 'submit' ? 'SMSC submit (Message ID)' : 'DELIVRD DLR received'}</span>{form.force_dlr && form.billing_type === 'delivery' ? ' or Force DLR timeout' : ''}</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-red-500 font-bold shrink-0">CLIENT ✗</span>
+                    <span className="text-slate-600">NOT charged on: <span className="font-semibold">{form.billing_type === 'send' ? 'none (always charged on send)' : form.billing_type === 'submit' ? 'submit fail, send error, rejection' : 'undelivered, failed DLR, missing DLR, submit fail'}</span></span>
+                  </div>
+                  <div className="border-t border-slate-100 pt-1.5 flex items-start gap-2">
+                    <span className="mt-0.5 text-green-600 font-bold shrink-0">SUPPLIER ✓</span>
+                    <span className="text-slate-600">Charged on: <span className="font-semibold">successful submit only (Message ID received)</span></span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-red-500 font-bold shrink-0">SUPPLIER ✗</span>
+                    <span className="text-slate-600">NOT charged on: <span className="font-semibold">submit fail, send error, undelivered DLR, Force DLR (client-side only)</span></span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="col-span-2 space-y-2"><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
