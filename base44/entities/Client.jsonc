@@ -66,6 +66,26 @@
       "type": "string",
       "description": "Query status URL"
     },
+    "billing_type": {
+      "type": "string",
+      "enum": [
+        "send",
+        "submit",
+        "delivery"
+      ],
+      "default": "submit",
+      "description": "Billing trigger: send = on gateway receive, submit = on SMSC accept (message ID), delivery = on successful DLR"
+    },
+    "force_dlr": {
+      "type": "boolean",
+      "default": false,
+      "description": "Force send a DLR notification to the client regardless of actual delivery status"
+    },
+    "force_dlr_timeout": {
+      "type": "number",
+      "default": 30,
+      "description": "Seconds after send to forcefully deliver a DLR notification to client (used when force_dlr is enabled)"
+    },
     "status": {
       "type": "string",
       "enum": [

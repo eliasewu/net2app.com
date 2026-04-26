@@ -19,8 +19,15 @@ const emptyClient = {
   connection_type: "SMPP", smpp_ip: "", smpp_port: 2775,
   smpp_username: "", smpp_password: "", http_url: "", http_method: "POST",
   http_params: "", dlr_url: "", query_url: "",
+  billing_type: "submit", force_dlr: false, force_dlr_timeout: 30,
   status: "active", credit_limit: 0, currency: "USD", balance: 0,
   tps_limit: 100, allowed_senders: "", notes: ""
+};
+
+const BILLING_TYPE_INFO = {
+  send:     { label: "Send Billing",     color: "text-orange-600 bg-orange-50 border-orange-200", desc: "Balance deducted when message leaves your system / hits gateway (regardless of acceptance)." },
+  submit:   { label: "Submit Billing",   color: "text-blue-600 bg-blue-50 border-blue-200",     desc: "Balance deducted when SMSC accepts the message and returns a Message ID. Rejected messages are not billed." },
+  delivery: { label: "Delivery Billing", color: "text-green-600 bg-green-50 border-green-200",  desc: "Balance deducted only when a DELIVRD DLR is received. Most client-friendly; rare in wholesale markets." },
 };
 
 export default function Clients() {
@@ -97,6 +104,7 @@ export default function Clients() {
                 <TableHead>Name</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead>Billing</TableHead>
                 <TableHead>TPS</TableHead>
                 <TableHead>Balance</TableHead>
                 <TableHead>Status</TableHead>
@@ -109,6 +117,12 @@ export default function Clients() {
                   <TableCell className="font-medium">{c.name}</TableCell>
                   <TableCell className="text-sm">{c.email}</TableCell>
                   <TableCell><span className="text-xs font-mono bg-muted px-2 py-1 rounded">{c.connection_type}</span></TableCell>
+                  <TableCell>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium capitalize ${BILLING_TYPE_INFO[c.billing_type || 'submit']?.color}`}>
+                      {c.billing_type || 'submit'}
+                      {c.force_dlr ? ' + FDLR' : ''}
+                    </span>
+                  </TableCell>
                   <TableCell>{c.tps_limit}</TableCell>
                   <TableCell className="font-mono">{c.currency} {c.balance?.toFixed(2)}</TableCell>
                   <TableCell><StatusBadge status={c.status} /></TableCell>
@@ -121,7 +135,7 @@ export default function Clients() {
                 </TableRow>
               ))}
               {clients.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-12">No clients yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-12">No clients yet</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -207,6 +221,66 @@ export default function Clients() {
             <div className="space-y-2"><Label>Credit Limit</Label><Input type="number" value={form.credit_limit} onChange={(e) => set('credit_limit', Number(e.target.value))} /></div>
             <div className="space-y-2"><Label>Balance</Label><Input type="number" value={form.balance} onChange={(e) => set('balance', Number(e.target.value))} /></div>
             <div className="col-span-2 space-y-2"><Label>Allowed Sender IDs</Label><Input value={form.allowed_senders} onChange={(e) => set('allowed_senders', e.target.value)} placeholder="SenderA, SenderB" /></div>
+
+            {/* Billing Configuration */}
+            <div className="col-span-2 space-y-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">💰 Billing Configuration</p>
+              <div className="space-y-2">
+                <Label>Billing Type</Label>
+                <Select value={form.billing_type || "submit"} onValueChange={(v) => set('billing_type', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="send">Send Billing — charged on gateway receipt</SelectItem>
+                    <SelectItem value="submit">Submit Billing — charged on SMSC accept (Message ID)</SelectItem>
+                    <SelectItem value="delivery">Delivery Billing — charged on DELIVRD DLR only</SelectItem>
+                  </SelectContent>
+                </Select>
+                {form.billing_type && (
+                  <div className={`text-xs px-3 py-2 rounded-lg border ${BILLING_TYPE_INFO[form.billing_type]?.color}`}>
+                    {BILLING_TYPE_INFO[form.billing_type]?.desc}
+                  </div>
+                )}
+              </div>
+
+              {/* Force DLR */}
+              <div className="grid grid-cols-2 gap-4 pt-1">
+                <div className="space-y-2">
+                  <Label>Force DLR</Label>
+                  <Select value={form.force_dlr ? "yes" : "no"} onValueChange={(v) => set('force_dlr', v === "yes")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no">Disabled — send real DLR only</SelectItem>
+                      <SelectItem value="yes">Enabled — force DLR to client</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Force DLR Timeout (seconds)</Label>
+                  <Select value={String(form.force_dlr_timeout || 30)} onValueChange={(v) => set('force_dlr_timeout', Number(v))} disabled={!form.force_dlr}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5 seconds</SelectItem>
+                      <SelectItem value="10">10 seconds</SelectItem>
+                      <SelectItem value="15">15 seconds</SelectItem>
+                      <SelectItem value="30">30 seconds</SelectItem>
+                      <SelectItem value="60">60 seconds (1 min)</SelectItem>
+                      <SelectItem value="120">120 seconds (2 min)</SelectItem>
+                      <SelectItem value="300">300 seconds (5 min)</SelectItem>
+                      <SelectItem value="600">600 seconds (10 min)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {form.force_dlr && (
+                    <p className="text-xs text-muted-foreground">DLR notification will be sent to client {form.force_dlr_timeout}s after message is submitted.</p>
+                  )}
+                </div>
+              </div>
+              {form.force_dlr && (
+                <div className="text-xs px-3 py-2 rounded-lg border bg-yellow-50 border-yellow-200 text-yellow-700">
+                  ⚠️ Force DLR is ON: a synthetic "Delivered" DLR will be sent to the client's DLR URL {form.force_dlr_timeout} seconds after submission, regardless of actual delivery status.
+                </div>
+              )}
+            </div>
+
             <div className="col-span-2 space-y-2"><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
           </div>
           <DialogFooter>
