@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Server, Wifi, Phone, Database, Shield, BookOpen, Users, Settings } from "lucide-react";
+import { Copy, Server, Wifi, Phone, Database, Shield, BookOpen, Users, Settings, GitBranch } from "lucide-react";
 import { toast } from "sonner";
 
 function CodeBlock({ label, code, color = "text-green-400" }) {
@@ -460,30 +460,87 @@ ENDSQL
 
 echo "Tenant database created."`,
 
-  billing_trigger: `-- ── Real-time Billing Trigger ─────────────────────────────────────
--- After each SMS delivery update, recalculate billing_summary
+  billing_trigger: `-- ════════════════════════════════════════════════════════════════════
+--  Net2app Real-Time Billing — Billing-Type Aware Trigger
+--
+--  CLIENT billing rules (per billing_type stored in clients table):
+--    send     → charge on any non-blocked status (even if later failed)
+--    submit   → charge only when SMSC returns msg_id (not failed/rejected)
+--    delivery → charge only on status='delivered' (or force_dlr synthetic)
+--
+--  SUPPLIER billing rules (always same regardless of client billing_type):
+--    charge only on successful submit (status NOT IN failed/rejected/blocked)
+--    DLR fail, undelivered, force_dlr to client = supplier NOT charged
+-- ════════════════════════════════════════════════════════════════════
+
+-- Add billing columns to clients table if not present
+ALTER TABLE net2app.clients
+  ADD COLUMN IF NOT EXISTS billing_type ENUM('send','submit','delivery') DEFAULT 'submit',
+  ADD COLUMN IF NOT EXISTS force_dlr TINYINT(1) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS force_dlr_timeout INT DEFAULT 30;
 
 DELIMITER //
+
+-- ── Client billing trigger ────────────────────────────────────────
 CREATE OR REPLACE TRIGGER trg_sms_billing_update
 AFTER UPDATE ON net2app.sms_log
 FOR EACH ROW
 BEGIN
-  DECLARE v_period DATE;
+  DECLARE v_period       DATE;
+  DECLARE v_billing_type VARCHAR(16);
+  DECLARE v_force_dlr    TINYINT(1);
+  DECLARE v_do_client    TINYINT(1) DEFAULT 0;
+  DECLARE v_do_supplier  TINYINT(1) DEFAULT 0;
+
   SET v_period = DATE(NEW.submit_time);
 
+  -- Fetch client billing settings
+  SELECT billing_type, force_dlr
+    INTO v_billing_type, v_force_dlr
+    FROM net2app.clients
+   WHERE id = NEW.client_id LIMIT 1;
+
+  SET v_billing_type = IFNULL(v_billing_type, 'submit');
+
+  -- ── Decide CLIENT charge ──────────────────────────────────────
+  IF v_billing_type = 'send' THEN
+    -- Charge on any status except blocked (already blocked before send)
+    IF NEW.status NOT IN ('blocked','pending') THEN SET v_do_client = 1; END IF;
+
+  ELSEIF v_billing_type = 'submit' THEN
+    -- Charge only when SMSC accepted (has dest_msg_id / not failed/rejected)
+    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client = 1; END IF;
+
+  ELSEIF v_billing_type = 'delivery' THEN
+    -- Charge only on DELIVRD
+    IF NEW.status = 'delivered' THEN SET v_do_client = 1; END IF;
+    -- Force DLR: if force_dlr=1 and status goes to sent/submitted → count as billable
+    IF v_force_dlr = 1 AND NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client = 1; END IF;
+  END IF;
+
+  -- ── Decide SUPPLIER charge ────────────────────────────────────
+  -- Supplier ALWAYS only charged on successful submit regardless of client billing_type
+  IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN
+    SET v_do_supplier = 1;
+  END IF;
+
+  -- ── Update billing_summary ────────────────────────────────────
   INSERT INTO net2app.billing_summary
     (id, tenant_id, period, total_sms, total_cost, total_revenue, margin)
   VALUES (
-    CONCAT(NEW.tenant_id, '_', v_period),
-    NEW.tenant_id,
-    v_period,
-    1, NEW.cost, NEW.sell_rate, (NEW.sell_rate - NEW.cost)
+    CONCAT(NEW.tenant_id,'_', v_period),
+    NEW.tenant_id, v_period,
+    IF(v_do_client,1,0),
+    IF(v_do_supplier, NEW.cost, 0),
+    IF(v_do_client, NEW.sell_rate, 0),
+    IF(v_do_client, NEW.sell_rate, 0) - IF(v_do_supplier, NEW.cost, 0)
   )
   ON DUPLICATE KEY UPDATE
-    total_sms     = total_sms + 1,
-    total_cost    = total_cost + NEW.cost,
-    total_revenue = total_revenue + NEW.sell_rate,
-    margin        = margin + (NEW.sell_rate - NEW.cost),
+    total_sms     = total_sms     + IF(v_do_client,1,0),
+    total_cost    = total_cost    + IF(v_do_supplier, NEW.cost, 0),
+    total_revenue = total_revenue + IF(v_do_client, NEW.sell_rate, 0),
+    margin        = margin        + IF(v_do_client, NEW.sell_rate, 0)
+                                  - IF(v_do_supplier, NEW.cost, 0),
     updated_at    = NOW();
 END //
 DELIMITER ;
@@ -491,13 +548,20 @@ DELIMITER ;
 -- ── Invoice generation stored procedure ───────────────────────────
 DELIMITER //
 CREATE OR REPLACE PROCEDURE sp_generate_invoice(
-  IN p_tenant_id VARCHAR(64),
-  IN p_client_id VARCHAR(64),
-  IN p_start DATE,
-  IN p_end DATE,
-  IN p_currency VARCHAR(8)
+  IN p_tenant_id  VARCHAR(64),
+  IN p_client_id  VARCHAR(64),
+  IN p_start      DATE,
+  IN p_end        DATE,
+  IN p_currency   VARCHAR(8)
 )
 BEGIN
+  DECLARE v_billing_type VARCHAR(16);
+  DECLARE v_force_dlr    TINYINT(1);
+
+  SELECT billing_type, force_dlr INTO v_billing_type, v_force_dlr
+    FROM net2app.clients WHERE id = p_client_id LIMIT 1;
+  SET v_billing_type = IFNULL(v_billing_type,'submit');
+
   SELECT
     client_id,
     client_name,
@@ -505,12 +569,17 @@ BEGIN
     SUM(sell_rate) AS total_amount,
     p_currency AS currency,
     p_start AS period_start,
-    p_end AS period_end
+    p_end AS period_end,
+    v_billing_type AS billing_type
   FROM net2app.sms_log
   WHERE tenant_id = p_tenant_id
     AND client_id = p_client_id
-    AND status = 'delivered'
     AND submit_time BETWEEN p_start AND p_end
+    AND (
+      (v_billing_type = 'send'     AND status NOT IN ('blocked','pending'))
+      OR (v_billing_type = 'submit'   AND status NOT IN ('failed','rejected','blocked','pending'))
+      OR (v_billing_type = 'delivery' AND (status = 'delivered' OR v_force_dlr = 1))
+    )
   GROUP BY client_id, client_name;
 END //
 DELIMITER ;`,
@@ -590,6 +659,174 @@ ufw deny 3306
 
 ufw enable
 ufw status verbose`,
+
+  github_deploy: `#!/bin/bash
+# ════════════════════════════════════════════════════════════════════
+#  Net2app — GitHub Deploy to Debian 12 Server
+#  Run this ONCE on your server as root to clone & set up auto-deploy
+#  Replace YOUR_GITHUB_USER and YOUR_REPO_NAME below.
+# ════════════════════════════════════════════════════════════════════
+
+GITHUB_USER="YOUR_GITHUB_USER"
+REPO_NAME="YOUR_REPO_NAME"
+DEPLOY_DIR="/opt/net2app"
+APP_PORT="8080"
+NODE_VERSION="20"
+
+# 1. Install Node.js + npm + git
+curl -fsSL https://deb.nodesource.com/setup_\${NODE_VERSION}.x | bash -
+apt-get install -y nodejs git build-essential
+
+# 2. Clone repo (use SSH key or HTTPS token)
+mkdir -p \$DEPLOY_DIR
+git clone https://github.com/\${GITHUB_USER}/\${REPO_NAME}.git \$DEPLOY_DIR
+cd \$DEPLOY_DIR
+
+# 3. Install dependencies & build
+npm install
+npm run build          # Vite outputs to dist/
+
+# 4. Install PM2 (process manager) if running a backend
+npm install -g pm2
+
+# 5. Serve the built frontend via nginx
+cp dist/* /var/www/html/ -r
+
+# 6. Nginx config for React SPA
+cat > /etc/nginx/sites-available/net2app << 'NGINX'
+server {
+    listen 80;
+    server_name _;
+
+    root /var/www/html;
+    index index.html;
+
+    # React Router — serve index.html for all routes
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API backend proxy (if you add a Node.js/Deno backend)
+    location /api/ {
+        proxy_pass http://127.0.0.1:\${APP_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection upgrade;
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+NGINX
+
+ln -sf /etc/nginx/sites-available/net2app /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+
+echo "✅ Net2app deployed at http://$(hostname -I | awk '{print $1}')"`,
+
+  github_update: `#!/bin/bash
+# ════════════════════════════════════════════════════════════════════
+#  Net2app — Pull Latest Changes + Rebuild (run on server)
+#  Save this as /opt/net2app/deploy.sh and run it on each update
+# ════════════════════════════════════════════════════════════════════
+
+set -e
+DEPLOY_DIR="/opt/net2app"
+cd $DEPLOY_DIR
+
+echo "📥 Pulling latest from GitHub..."
+git pull origin main
+
+echo "📦 Installing dependencies..."
+npm install
+
+echo "🔨 Building..."
+npm run build
+
+echo "📂 Copying build to nginx..."
+cp -r dist/* /var/www/html/
+
+echo "🔄 Reloading nginx..."
+nginx -t && systemctl reload nginx
+
+echo "✅ Deploy complete at $(date)"`,
+
+  github_actions: `# .github/workflows/deploy.yml
+# ════════════════════════════════════════════════════════════════════
+#  GitHub Actions — Auto Deploy to your Debian 12 server on push
+#  Secrets required in GitHub repo settings:
+#    SERVER_HOST  = your server IP / domain
+#    SERVER_USER  = root (or deploy user)
+#    SERVER_KEY   = private SSH key (paste full content)
+# ════════════════════════════════════════════════════════════════════
+
+name: Deploy Net2app
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install & Build
+        run: |
+          npm install
+          npm run build
+
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: \${{ secrets.SERVER_HOST }}
+          username: \${{ secrets.SERVER_USER }}
+          key: \${{ secrets.SERVER_KEY }}
+          script: |
+            cd /opt/net2app
+            git pull origin main
+            npm install
+            npm run build
+            cp -r dist/* /var/www/html/
+            nginx -t && systemctl reload nginx
+            echo "Deployed at $(date)"`,
+
+  github_ssh: `# ════════════════════════════════════════════════════════════════════
+#  Setup SSH Key for GitHub → Server Auto Deploy
+#  Run these commands on your Debian 12 server
+# ════════════════════════════════════════════════════════════════════
+
+# 1. Generate SSH key pair on the server
+ssh-keygen -t ed25519 -C "net2app-deploy" -f ~/.ssh/deploy_key -N ""
+
+# 2. Print the PUBLIC key — add this to GitHub:
+#    GitHub Repo → Settings → Deploy Keys → Add Deploy Key (read-only)
+cat ~/.ssh/deploy_key.pub
+
+# 3. Print the PRIVATE key — add this to GitHub Actions secrets as SERVER_KEY:
+cat ~/.ssh/deploy_key
+
+# 4. Configure SSH to use this key for GitHub
+cat >> ~/.ssh/config << 'EOF'
+Host github.com
+  IdentityFile ~/.ssh/deploy_key
+  StrictHostKeyChecking no
+EOF
+
+# 5. Test connection
+ssh -T git@github.com
+
+# 6. For GitHub Actions: also add your server's public key to authorized_keys
+cat ~/.ssh/deploy_key.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys`,
 
   tenant_smtp: `# ── Tenant SMTP + Branding Setup (per-tenant via dashboard) ──────
 # Tenants configure their own SMTP credentials + logo from their account.
@@ -688,6 +925,7 @@ export default function IntegrationDeployGuide() {
           <TabsTrigger value="asterisk" className="gap-1 text-xs"><Phone className="w-3 h-3" />Asterisk</TabsTrigger>
           <TabsTrigger value="security" className="gap-1 text-xs"><Shield className="w-3 h-3" />Firewall</TabsTrigger>
           <TabsTrigger value="smtp" className="gap-1 text-xs"><Settings className="w-3 h-3" />SMTP/Logo</TabsTrigger>
+          <TabsTrigger value="github" className="gap-1 text-xs"><GitBranch className="w-3 h-3" />GitHub Deploy</TabsTrigger>
         </TabsList>
 
         {/* Overview */}
@@ -808,11 +1046,13 @@ mysql -u net2app -p net2app -e "SELECT tenant_id, COUNT(*) c FROM sms_log GROUP 
         {/* Billing */}
         <TabsContent value="billing" className="mt-4 space-y-4">
           <InfoBox color="green">
-            <p className="font-bold">Real-Time Billing via MySQL Trigger</p>
-            <p>Every DLR status update fires a trigger → updates billing_summary (total_sms, cost, revenue, margin) per tenant per day.</p>
-            <p>Net2app dashboard reads billing_summary for instant stats. Invoice generator calls sp_generate_invoice() stored procedure.</p>
+            <p className="font-bold">Real-Time Billing via MySQL Trigger — Billing-Type Aware</p>
+            <p>Every DLR/status update fires a trigger that respects each client's billing_type:</p>
+            <p>• <strong>send</strong>: client charged on any non-blocked status. Supplier charged on successful submit only.</p>
+            <p>• <strong>submit</strong>: client charged only when SMSC returns Message ID. Fail/reject = NOT charged (client or supplier).</p>
+            <p>• <strong>delivery</strong>: client charged only on DELIVRD. Force DLR also counts as billable for client. Supplier NOT charged on undelivered/DLR fail.</p>
           </InfoBox>
-          <CodeBlock label="Step 6 — Billing Trigger + Invoice Procedure" code={SCRIPTS.billing_trigger} color="text-yellow-300" />
+          <CodeBlock label="Step 6 — Billing-Type Aware Trigger + Invoice Procedure" code={SCRIPTS.billing_trigger} color="text-yellow-300" />
           <CodeBlock label="Test billing calculation" code={`-- Check real-time billing for today
 SELECT tenant_id, period, total_sms, total_cost, total_revenue, margin
 FROM net2app.billing_summary
@@ -859,6 +1099,57 @@ fail2ban-client status`} />
           <InfoBox color="orange">
             <p className="font-bold">Tenant ports auto-opened via dashboard:</p>
             <p>When you create a tenant in Tenant Management, the UFW commands are auto-generated. Go to <strong>Tenant Management → UFW Commands</strong> tab to copy and run them on the server.</p>
+          </InfoBox>
+        </TabsContent>
+
+        {/* GitHub Deploy */}
+        <TabsContent value="github" className="mt-4 space-y-4">
+          <div className="p-4 bg-gradient-to-r from-gray-900 to-slate-800 rounded-xl text-white space-y-2">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-5 h-5" />
+              <h3 className="font-bold">GitHub → Debian 12 Auto Deploy</h3>
+            </div>
+            <p className="text-gray-300 text-sm">Push to GitHub → Server automatically pulls, builds, and deploys. No manual SSH needed after initial setup.</p>
+          </div>
+
+          <InfoBox color="blue">
+            <p className="font-bold">Deploy Flow:</p>
+            <p>1. Push code to GitHub (main branch)</p>
+            <p>2. GitHub Actions builds + SSHs into your server</p>
+            <p>3. Server pulls latest, runs <code>npm run build</code>, copies to nginx /var/www/html</p>
+            <p>4. Nginx reloads — app is live within ~60 seconds of push</p>
+          </InfoBox>
+
+          <CodeBlock label="Step 1 — SSH Key Setup (run on Debian 12 server as root)" code={SCRIPTS.github_ssh} color="text-cyan-300" />
+          <CodeBlock label="Step 2 — Initial Server Deploy (clone + build + nginx)" code={SCRIPTS.github_deploy} color="text-green-400" />
+          <CodeBlock label="Step 3 — Manual Update Script (/opt/net2app/deploy.sh)" code={SCRIPTS.github_update} color="text-yellow-300" />
+          <CodeBlock label="Step 4 — GitHub Actions CI/CD (.github/workflows/deploy.yml)" code={SCRIPTS.github_actions} color="text-purple-300" />
+
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Required GitHub Secrets</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-2 text-sm">
+                {[
+                  { key: "SERVER_HOST", val: "Your server IP or domain (e.g. 192.168.1.100)" },
+                  { key: "SERVER_USER", val: "root or deploy user" },
+                  { key: "SERVER_KEY",  val: "Full content of ~/.ssh/deploy_key (private key)" },
+                ].map(s => (
+                  <div key={s.key} className="flex items-start gap-3 p-2 bg-muted rounded-lg">
+                    <code className="text-xs bg-black/10 px-2 py-0.5 rounded font-mono shrink-0">{s.key}</code>
+                    <span className="text-xs text-muted-foreground">{s.val}</span>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground pt-2">Go to: GitHub Repo → Settings → Secrets and variables → Actions → New repository secret</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <InfoBox color="green">
+            <p className="font-bold">Quick checklist for your GitHub repo:</p>
+            <p>✅ Add <code>.github/workflows/deploy.yml</code> (copy from above)</p>
+            <p>✅ Add 3 secrets: SERVER_HOST, SERVER_USER, SERVER_KEY</p>
+            <p>✅ Add deploy public key to GitHub repo Deploy Keys (read-only is fine)</p>
+            <p>✅ Push to <code>main</code> branch → Actions tab shows deploy progress</p>
           </InfoBox>
         </TabsContent>
 

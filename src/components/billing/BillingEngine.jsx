@@ -40,19 +40,39 @@ export default function BillingEngine() {
 
   const setInv = (k, v) => setInvForm(p => ({ ...p, [k]: v }));
 
-  // ── Financial calculations ────────────────────────────────────────────────
+  // ── Financial calculations — billing_type aware ───────────────────────────
+  const getBillableLogs = (logs, client) => {
+    const bt = client.billing_type || 'submit';
+    if (bt === 'send') {
+      // Charged on gateway receive — all logs except hard blocked before send
+      return logs.filter(l => !['blocked'].includes(l.status));
+    }
+    if (bt === 'submit') {
+      // Charged only when SMSC accepted (has dest_message_id or status != failed/rejected)
+      return logs.filter(l => !['failed', 'rejected', 'blocked', 'pending'].includes(l.status));
+    }
+    if (bt === 'delivery') {
+      // Charged only on DELIVRD — plus force_dlr counts as billable
+      return logs.filter(l => l.status === 'delivered');
+    }
+    return logs;
+  };
+
   const clientStats = clients.map(c => {
     const logs = smsLogs.filter(l => l.client_id === c.id);
-    const revenue = logs.reduce((s, l) => s + (l.sell_rate || 0), 0);
-    const cost = logs.reduce((s, l) => s + (l.cost || 0), 0);
+    const billableLogs = getBillableLogs(logs, c);
+    const revenue = billableLogs.reduce((s, l) => s + (l.sell_rate || 0), 0);
+    // Supplier cost: only on successful submit (never on fail/rejected/blocked)
+    const supplierBillableLogs = logs.filter(l => !['failed', 'rejected', 'blocked', 'pending'].includes(l.status));
+    const cost = supplierBillableLogs.reduce((s, l) => s + (l.cost || 0), 0);
     const margin = revenue - cost;
     const delivered = logs.filter(l => l.status === 'delivered').length;
-    const failed = logs.filter(l => l.status === 'failed').length;
+    const failed = logs.filter(l => ['failed', 'rejected'].includes(l.status)).length;
     const balance = c.balance || 0;
     const creditLimit = c.credit_limit || 0;
     const isLow = creditLimit > 0 && balance < creditLimit * 0.1;
     const isExceeded = creditLimit > 0 && balance < 0;
-    return { ...c, logs: logs.length, revenue, cost, margin, delivered, failed, isLow, isExceeded };
+    return { ...c, totalLogs: logs.length, billable: billableLogs.length, revenue, cost, margin, delivered, failed, isLow, isExceeded };
   });
 
   const totalRevenue = clientStats.reduce((s, c) => s + c.revenue, 0);
@@ -60,8 +80,11 @@ export default function BillingEngine() {
 
   const supplierStats = suppliers.map(s => {
     const logs = smsLogs.filter(l => l.supplier_id === s.id);
-    const cost = logs.reduce((sum, l) => sum + (l.cost || 0), 0);
-    return { ...s, sent: logs.length, cost };
+    // Supplier only charged on successful submit (not on fail/reject/blocked)
+    const billableLogs = logs.filter(l => !['failed', 'rejected', 'blocked', 'pending'].includes(l.status));
+    const cost = billableLogs.reduce((sum, l) => sum + (l.cost || 0), 0);
+    const failed = logs.filter(l => ['failed', 'rejected'].includes(l.status)).length;
+    return { ...s, sent: logs.length, billable: billableLogs.length, failed, cost };
   });
 
   const openInvoice = (client) => {
@@ -173,13 +196,25 @@ export default function BillingEngine() {
                   {clientStats.map(c => (
                     <TableRow key={c.id} className={c.isExceeded ? 'bg-red-50' : c.isLow ? 'bg-yellow-50' : ''}>
                       <TableCell>
-                        <div>
+                        <div className="space-y-0.5">
                           <p className="font-medium">{c.name}</p>
-                          {c.isExceeded && <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 text-[10px]">Credit Exceeded!</Badge>}
-                          {c.isLow && !c.isExceeded && <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-[10px]">Low Balance</Badge>}
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="outline" className={`text-[9px] capitalize px-1.5 py-0 ${
+                              c.billing_type === 'delivery' ? 'bg-green-50 text-green-700 border-green-200' :
+                              c.billing_type === 'send' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                              'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}>{c.billing_type || 'submit'}{c.force_dlr ? '+FDLR' : ''}</Badge>
+                            {c.isExceeded && <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 text-[9px] px-1.5 py-0">Credit Exceeded!</Badge>}
+                            {c.isLow && !c.isExceeded && <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-[9px] px-1.5 py-0">Low Balance</Badge>}
+                          </div>
                         </div>
                       </TableCell>
-                      <TableCell>{c.logs}</TableCell>
+                      <TableCell>
+                        <div className="text-xs">
+                          <p>{c.billable} <span className="text-muted-foreground">billable</span></p>
+                          <p className="text-muted-foreground">{c.totalLogs} total</p>
+                        </div>
+                      </TableCell>
                       <TableCell className="font-mono text-green-700">{c.currency || 'USD'} {c.revenue.toFixed(4)}</TableCell>
                       <TableCell className="font-mono text-red-600">{c.currency || 'USD'} {c.cost.toFixed(4)}</TableCell>
                       <TableCell className={`font-mono font-bold ${c.margin >= 0 ? 'text-green-700' : 'text-red-600'}`}>{c.currency || 'USD'} {c.margin.toFixed(4)}</TableCell>
@@ -220,13 +255,18 @@ export default function BillingEngine() {
                 </TableHeader>
                 <TableBody>
                   {supplierStats.map(s => (
-                    <TableRow key={s.id}>
-                      <TableCell className="font-medium">{s.name}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-xs">{s.connection_type || 'HTTP'}</Badge></TableCell>
-                      <TableCell>{s.sent}</TableCell>
-                      <TableCell className="font-mono text-red-600">USD {s.cost.toFixed(4)}</TableCell>
-                    </TableRow>
-                  ))}
+                     <TableRow key={s.id}>
+                       <TableCell className="font-medium">{s.name}</TableCell>
+                       <TableCell><Badge variant="outline" className="text-xs">{s.connection_type || 'HTTP'}</Badge></TableCell>
+                       <TableCell>
+                         <div className="text-xs">
+                           <p>{s.billable} <span className="text-muted-foreground">billable</span></p>
+                           <p className="text-muted-foreground">{s.sent} total · {s.failed} failed (not charged)</p>
+                         </div>
+                       </TableCell>
+                       <TableCell className="font-mono text-red-600">USD {s.cost.toFixed(4)}</TableCell>
+                     </TableRow>
+                   ))}
                   {supplierStats.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">No suppliers</TableCell></TableRow>}
                 </TableBody>
               </Table>
