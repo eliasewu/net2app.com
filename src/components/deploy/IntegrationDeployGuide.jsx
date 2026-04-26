@@ -279,11 +279,28 @@ CREATE TABLE IF NOT EXISTS suppliers (
   sip_username    VARCHAR(64),
   sip_password    VARCHAR(128),
   -- Device session (WhatsApp/Telegram/IMO connected via QR)
-  device_channel  ENUM('whatsapp','telegram','imo') DEFAULT NULL,
+  device_channel  ENUM('whatsapp','telegram','imo','android') DEFAULT NULL,
   device_phone    VARCHAR(32),   -- phone number linked to the device
   device_session  TEXT,          -- session token / auth blob (from WPPConnect/GramJS)
   device_status   ENUM('pending','connected','disconnected','expired') DEFAULT 'pending',
   device_linked_at DATETIME,
+  -- Android APK SMS gateway fields
+  android_webhook_url  TEXT,       -- URL exposed by Android APK (http://DEVICE_IP:8080/send)
+  android_device_id    VARCHAR(128), -- unique device ID from APK registration
+  android_api_token    VARCHAR(256), -- auth token for Android APK webhook
+  -- Destination restriction (per-device, not mixed across channels)
+  allowed_prefixes     VARCHAR(512), -- comma-separated: 880,971,44
+  allowed_mcc_mnc      TEXT,         -- JSON: [{"mcc":"470","mnc":"01"}]
+  -- Auto-reroute when device fails (number not on platform, unregistered, offline)
+  reroute_on_fail      TINYINT(1) DEFAULT 1,
+  reroute_supplier_id  VARCHAR(64),  -- fallback SMPP/HTTP/VoiceOTP supplier
+  reroute_supplier_name VARCHAR(128),
+  billing_type         ENUM('send','submit','delivery') DEFAULT 'delivery',  -- always 'delivery' for device/android
+  -- Per-device statistics (updated by trigger on DLR/status update)
+  total_sent       BIGINT DEFAULT 0,
+  total_delivered  BIGINT DEFAULT 0,
+  total_failed     BIGINT DEFAULT 0,
+  total_rerouted   BIGINT DEFAULT 0,
   -- OTP Unicode
   otp_unicode_preset VARCHAR(128),
   otp_unicode_enabled TINYINT(1) DEFAULT 0,
@@ -320,20 +337,38 @@ CREATE TABLE IF NOT EXISTS device_sessions (
 
 -- Routes
 CREATE TABLE IF NOT EXISTS routes (
-  id           VARCHAR(64) PRIMARY KEY,
-  tenant_id    VARCHAR(64) NOT NULL,
-  name         VARCHAR(128),
-  client_id    VARCHAR(64),
-  supplier_id  VARCHAR(64),
-  mcc          VARCHAR(8),
-  mnc          VARCHAR(8),
-  country      VARCHAR(64),
-  network      VARCHAR(128),
-  prefix       VARCHAR(32),
-  routing_mode ENUM('LCR','ASR','Priority','Round Robin') DEFAULT 'Priority',
-  status       ENUM('active','inactive','blocked') DEFAULT 'active',
-  INDEX(tenant_id), INDEX(mcc, mnc)
+  id                        VARCHAR(64) PRIMARY KEY,
+  tenant_id                 VARCHAR(64) NOT NULL,
+  name                      VARCHAR(128),
+  client_id                 VARCHAR(64),
+  client_name               VARCHAR(128),
+  supplier_id               VARCHAR(64),   -- primary supplier (SMPP/HTTP/DEVICE/ANDROID)
+  supplier_name             VARCHAR(128),
+  backup_supplier_id        VARCHAR(64),   -- backup for SMPP/HTTP failure
+  backup_supplier_name      VARCHAR(128),
+  -- Device-specific reroute (when WA/TG/IMO/Android fails — number not on platform)
+  device_reroute_supplier_id   VARCHAR(64),
+  device_reroute_supplier_name VARCHAR(128),
+  device_reroute_to         ENUM('smpp','http','voice_otp','none') DEFAULT 'smpp',
+  reroute_on_device_fail    TINYINT(1) DEFAULT 1,
+  mcc                       VARCHAR(8),
+  mnc                       VARCHAR(8),
+  country                   VARCHAR(64),
+  network                   VARCHAR(128),
+  prefix                    VARCHAR(32),   -- destination prefix(es), comma-separated
+  routing_mode              ENUM('LCR','ASR','Priority','Round Robin') DEFAULT 'Priority',
+  status                    ENUM('active','inactive','blocked') DEFAULT 'active',
+  fail_count                INT DEFAULT 0,
+  auto_block_threshold      INT DEFAULT 10,
+  is_auto_blocked           TINYINT(1) DEFAULT 0,
+  otp_unicode_preset_id     VARCHAR(64),
+  content_template_id       VARCHAR(64),
+  INDEX(tenant_id), INDEX(mcc, mnc), INDEX(supplier_id)
 ) ENGINE=InnoDB;
+
+-- IMPORTANT: Each device supplier (WA/TG/IMO/Android) must be assigned to its OWN routes.
+-- Never mix channel types in one route — each is dedicated per destination prefix/MCC-MNC.
+-- Device billing: DLR-only. Trigger updates supplier total_delivered/total_failed/total_rerouted.
 
 -- Rates (client + supplier)
 CREATE TABLE IF NOT EXISTS rates (
@@ -590,6 +625,47 @@ BEGIN
     margin        = margin        + IF(v_do_client, NEW.sell_rate, 0)
                                   - IF(v_do_supplier, NEW.cost, 0),
     updated_at    = NOW();
+END //
+DELIMITER ;
+
+-- ── Per-Device Statistics Trigger ────────────────────────────────
+-- Updates supplier.total_sent/delivered/failed/rerouted on every SMS status change
+DELIMITER //
+CREATE OR REPLACE TRIGGER trg_device_supplier_stats
+AFTER UPDATE ON net2app.sms_log
+FOR EACH ROW
+BEGIN
+  -- Only apply to device/android supplier rows
+  DECLARE v_cat VARCHAR(32);
+  SELECT category INTO v_cat FROM net2app.suppliers WHERE id = NEW.supplier_id LIMIT 1;
+  IF v_cat IN ('device','android') THEN
+    -- Update total_delivered on DLR success
+    IF NEW.status = 'delivered' AND OLD.status != 'delivered' THEN
+      UPDATE net2app.suppliers SET total_delivered = total_delivered + 1 WHERE id = NEW.supplier_id;
+    END IF;
+    -- Update total_failed when device fails
+    IF NEW.status = 'failed' AND OLD.status != 'failed' THEN
+      UPDATE net2app.suppliers SET total_failed = total_failed + 1 WHERE id = NEW.supplier_id;
+    END IF;
+    -- Count reroute: when status=sent but supplier changed to fallback (fail_reason contains 'rerouted')
+    IF NEW.status IN ('sent','delivered') AND NEW.fail_reason LIKE '%rerouted%' THEN
+      UPDATE net2app.suppliers SET total_rerouted = total_rerouted + 1 WHERE id = NEW.supplier_id;
+    END IF;
+    -- Increment total_sent on insert (via separate INSERT trigger)
+  END IF;
+END //
+DELIMITER ;
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trg_device_supplier_sent
+AFTER INSERT ON net2app.sms_log
+FOR EACH ROW
+BEGIN
+  DECLARE v_cat VARCHAR(32);
+  SELECT category INTO v_cat FROM net2app.suppliers WHERE id = NEW.supplier_id LIMIT 1;
+  IF v_cat IN ('device','android') THEN
+    UPDATE net2app.suppliers SET total_sent = total_sent + 1 WHERE id = NEW.supplier_id;
+  END IF;
 END //
 DELIMITER ;
 
@@ -876,6 +952,70 @@ ssh -T git@github.com
 cat ~/.ssh/deploy_key.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys`,
 
+  android_apk: `# ════════════════════════════════════════════════════════════════════
+#  Net2app Android SMS Gateway — APK Integration Guide
+#  The Android APK turns any Android phone into a dedicated SMS supplier
+#  using the device's SIM card for real SMS delivery (not WhatsApp/Telegram).
+# ════════════════════════════════════════════════════════════════════
+
+# ── How it works ─────────────────────────────────────────────────
+# 1. Install Net2app Android APK on the phone
+# 2. APK exposes a local HTTP server (port 8080 by default)
+# 3. Net2app platform sends HTTP POST to APK webhook URL
+# 4. APK sends real SMS via Android SIM card telephony API
+# 5. APK sends DLR callback back to platform on delivery/failure
+# 6. Platform updates sms_log status and charges client only on DLR
+
+# ── APK Webhook API (exposed by Android app) ─────────────────────
+# POST http://DEVICE_IP:8080/send
+# Headers: Authorization: Bearer API_TOKEN
+# Body (JSON):
+# {
+#   "to": "+8801XXXXXXXXX",
+#   "message": "Your OTP is 1234",
+#   "message_id": "internal_msg_id",
+#   "dlr_url": "http://PLATFORM_IP/dlr?id=MSG_ID&status=DELIVERED"
+# }
+#
+# Response (JSON):
+# { "success": true, "device_id": "DEVICE_ID", "queued": true }
+
+# ── DLR Callback (APK → Platform) ────────────────────────────────
+# When SMS is delivered or failed, APK calls:
+# GET/POST http://PLATFORM_IP/dlr
+# Params: id=MSG_ID & status=DELIVERED|FAILED|UNDELIVERED
+
+# ── Destination prefix restriction (per device) ───────────────────
+# Each Android supplier in Net2app has allowed_prefixes (e.g. "880,971")
+# Platform only routes messages matching those prefixes to this device.
+# Other prefixes are handled by SMPP/HTTP suppliers or other devices.
+
+# ── Reroute on fail ──────────────────────────────────────────────
+# If Android APK is offline, SIM has no signal, or SMS fails:
+#   → Platform marks attempt as failed on this device
+#   → Automatically routes to configured fallback SMPP/HTTP supplier
+#   → fail_reason stored as "android_fail:rerouted_to:SUPPLIER_NAME"
+#   → total_rerouted counter incremented on the Android supplier record
+
+# ── Multiple Android devices (load balancing) ────────────────────
+# Add multiple Android suppliers with same or overlapping prefixes.
+# Use Round Robin routing mode in Routes to distribute across SIM cards.
+# Each device tracks its own stats: total_sent, total_delivered, total_failed.
+
+# ── Security ─────────────────────────────────────────────────────
+# APK webhook URL should be behind VPN or accessible only to platform server.
+# Use android_api_token for Bearer auth on each request.
+# Restrict platform IP in Android APK settings.
+
+# ── APK Build Notes (for developer) ──────────────────────────────
+# Framework: Android (Java/Kotlin)
+# Permissions needed:
+#   SEND_SMS, READ_PHONE_STATE, RECEIVE_SMS, INTERNET
+#   WAKE_LOCK (keep HTTP server alive)
+#   FOREGROUND_SERVICE (keep running in background)
+# HTTP server library: NanoHTTPD or Ktor (embedded)
+# DLR detection: BroadcastReceiver for SentIntent/DeliveredIntent`,
+
   tenant_smtp: `# ── Tenant SMTP + Branding Setup (per-tenant via dashboard) ──────
 # Tenants configure their own SMTP credentials + logo from their account.
 # These are stored in tenant settings and used for:
@@ -932,6 +1072,7 @@ const ARCH = `
   │  Suppliers ← SMPP connect out       (bearerbox SMPP client)    │
   │  SIM Boxes ← AT/SMPP devices        (bearerbox bearer)         │
   │  Device Suppliers ← WA/TG/IMO QR    (WPPConnect/GramJS bridge) │
+  │  Android Suppliers ← APK HTTP webhook (real SIM SMS + DLR)     │
   │  Super Admin → manages all tenants, rates, routes, billing      │
   │  Tenant Admin → manages their own clients, suppliers, etc.      │
   └─────────────────────────────────────────────────────────────────┘
@@ -974,6 +1115,7 @@ export default function IntegrationDeployGuide() {
           <TabsTrigger value="asterisk" className="gap-1 text-xs"><Phone className="w-3 h-3" />Asterisk</TabsTrigger>
           <TabsTrigger value="security" className="gap-1 text-xs"><Shield className="w-3 h-3" />Firewall</TabsTrigger>
           <TabsTrigger value="smtp" className="gap-1 text-xs"><Settings className="w-3 h-3" />SMTP/Logo</TabsTrigger>
+          <TabsTrigger value="android_apk" className="gap-1 text-xs"><Phone className="w-3 h-3" />Android APK</TabsTrigger>
           <TabsTrigger value="github" className="gap-1 text-xs"><GitBranch className="w-3 h-3" />GitHub Deploy</TabsTrigger>
         </TabsList>
 
@@ -1148,6 +1290,24 @@ fail2ban-client status`} />
           <InfoBox color="orange">
             <p className="font-bold">Tenant ports auto-opened via dashboard:</p>
             <p>When you create a tenant in Tenant Management, the UFW commands are auto-generated. Go to <strong>Tenant Management → UFW Commands</strong> tab to copy and run them on the server.</p>
+          </InfoBox>
+        </TabsContent>
+
+        {/* Android APK */}
+        <TabsContent value="android_apk" className="mt-4 space-y-4">
+          <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-800 space-y-1">
+            <p className="font-bold">🤖 Android SMS Gateway — APK Integration</p>
+            <p>Any Android phone becomes a real SMS supplier using its SIM card. Each device is a dedicated supplier with its own destination prefixes, DLR billing, and auto-reroute fallback to SMPP/HTTP.</p>
+          </div>
+          <CodeBlock label="Android APK Integration Guide" code={SCRIPTS.android_apk} color="text-orange-300" />
+          <InfoBox color="orange">
+            <p className="font-bold">Key Rules for Android Suppliers:</p>
+            <p>• Each Android device = one Supplier (category: android, connection_type: ANDROID)</p>
+            <p>• Set allowed_prefixes per device (e.g. "880" for BD, "971" for UAE) — strictly separated</p>
+            <p>• Billing is <strong>DLR-only</strong> — client charged only when SIM confirms delivery</p>
+            <p>• If SMS fails (no signal, SIM error) → auto-reroute to configured SMPP/HTTP fallback</p>
+            <p>• Multiple Android devices can share overlapping prefixes with Round Robin routing</p>
+            <p>• APK webhook URL must be reachable from platform server (VPN or port forward recommended)</p>
           </InfoBox>
         </TabsContent>
 

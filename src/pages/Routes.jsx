@@ -10,7 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, RotateCcw } from "lucide-react";
+import { Plus, Pencil, Trash2, RotateCcw, ArrowRightLeft } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 export default function Routes() {
@@ -45,12 +46,14 @@ export default function Routes() {
     const clientObj = clients.find(c => c.id === form.client_id);
     const supplierObj = suppliers.find(s => s.id === form.supplier_id);
     const backupObj = suppliers.find(s => s.id === form.backup_supplier_id);
+    const deviceRerouteObj = suppliers.find(s => s.id === form.device_reroute_supplier_id);
     const mccObj = mccmncs.find(m => m.mcc === form.mcc && m.mnc === form.mnc);
     const data = {
       ...form,
       client_name: clientObj?.name || '',
       supplier_name: supplierObj?.name || '',
       backup_supplier_name: backupObj?.name || '',
+      device_reroute_supplier_name: deviceRerouteObj?.name || '',
       country: mccObj?.country || form.country || '',
       network: mccObj?.network || form.network || '',
     };
@@ -62,7 +65,7 @@ export default function Routes() {
     updateMut.mutate({ id: route.id, data: { ...route, is_auto_blocked: false, fail_count: 0, status: 'active' } });
   };
 
-  const emptyForm = { name: '', client_id: '', supplier_id: '', backup_supplier_id: '', mcc: '', mnc: '', prefix: '', routing_mode: 'Priority', status: 'active', auto_block_threshold: 10, otp_unicode_preset_id: '', content_template_id: '' };
+  const emptyForm = { name: '', client_id: '', supplier_id: '', backup_supplier_id: '', device_reroute_supplier_id: '', device_reroute_to: 'smpp', reroute_on_device_fail: true, mcc: '', mnc: '', prefix: '', routing_mode: 'Priority', status: 'active', auto_block_threshold: 10, otp_unicode_preset_id: '', content_template_id: '' };
 
   return (
     <div className="space-y-6">
@@ -93,7 +96,14 @@ export default function Routes() {
                 <TableRow key={r.id} className={r.is_auto_blocked ? 'bg-red-50/50' : ''}>
                   <TableCell className="font-medium">{r.name}</TableCell>
                   <TableCell>{r.client_name}</TableCell>
-                  <TableCell>{r.supplier_name}</TableCell>
+                  <TableCell>
+                    <span>{r.supplier_name}</span>
+                    {r.device_reroute_supplier_name && (
+                      <p className="text-xs text-orange-600 flex items-center gap-0.5 mt-0.5">
+                        <ArrowRightLeft className="w-2.5 h-2.5" />{r.device_reroute_supplier_name}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell className="font-mono text-sm">{r.mcc}/{r.mnc}</TableCell>
                   <TableCell><span className="text-xs bg-muted px-2 py-1 rounded">{r.routing_mode}</span></TableCell>
                   <TableCell>
@@ -206,6 +216,58 @@ export default function Routes() {
               </Select>
             </div>
           </div>
+
+          {/* Device Reroute — shown when primary supplier is a device/android type */}
+          {(() => {
+            const primarySupplier = suppliers.find(s => s.id === form.supplier_id);
+            const isDevice = primarySupplier && (primarySupplier.category === 'device' || primarySupplier.category === 'android');
+            if (!isDevice) return null;
+            return (
+              <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-3">
+                <p className="text-xs font-semibold text-orange-800 flex items-center gap-1">
+                  <ArrowRightLeft className="w-3.5 h-3.5" />Device Reroute Settings — {primarySupplier.name}
+                </p>
+                <p className="text-xs text-orange-700">When device fails (number not on {primarySupplier.provider_type}, unregistered, or offline), automatically reroute to a fallback SMPP/HTTP/VoiceOTP supplier. Billing is DLR-only for device routes.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Reroute on Device Fail</Label>
+                    <Select value={form.reroute_on_device_fail ? 'yes' : 'no'} onValueChange={v => set('reroute_on_device_fail', v === 'yes')}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="yes">Yes — reroute to fallback</SelectItem>
+                        <SelectItem value="no">No — mark as failed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Fallback Type</Label>
+                    <Select value={form.device_reroute_to || 'smpp'} onValueChange={v => set('device_reroute_to', v)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="smpp">SMPP Supplier</SelectItem>
+                        <SelectItem value="http">HTTP API Supplier</SelectItem>
+                        <SelectItem value="voice_otp">Voice OTP</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {form.reroute_on_device_fail && form.device_reroute_to !== 'none' && (
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Fallback Supplier</Label>
+                      <Select value={form.device_reroute_supplier_id || ''} onValueChange={v => set('device_reroute_supplier_id', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select fallback supplier..." /></SelectTrigger>
+                        <SelectContent>
+                          {suppliers.filter(s => s.category === 'sms' || s.category === 'voice_otp').map(s => (
+                            <SelectItem key={s.id} value={s.id}>{s.name} ({s.connection_type})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSubmit}>{editing ? 'Update' : 'Create'}</Button>

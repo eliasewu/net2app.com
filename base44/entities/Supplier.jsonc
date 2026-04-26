@@ -12,13 +12,14 @@
         "voice_otp",
         "whatsapp",
         "telegram",
-        "device"
+        "device",
+        "android"
       ],
       "default": "sms"
     },
     "provider_type": {
       "type": "string",
-      "description": "e.g. Nexmo, Twilio, Infobip, Borno API"
+      "description": "e.g. Nexmo, Twilio, WPPConnect, GramJS, Android APK"
     },
     "contact_person": {
       "type": "string"
@@ -36,7 +37,8 @@
         "SMPP",
         "SIP",
         "SDK",
-        "DEVICE"
+        "DEVICE",
+        "ANDROID"
       ],
       "default": "HTTP"
     },
@@ -95,6 +97,64 @@
     "sip_password": {
       "type": "string"
     },
+    "android_webhook_url": {
+      "type": "string",
+      "description": "Webhook URL exposed by Android APK for sending SMS via device SIM"
+    },
+    "android_device_id": {
+      "type": "string",
+      "description": "Unique device ID from Android APK registration"
+    },
+    "android_api_token": {
+      "type": "string",
+      "description": "Auth token for Android APK webhook"
+    },
+    "allowed_prefixes": {
+      "type": "string",
+      "description": "Comma-separated destination prefixes this device/supplier handles, e.g. 880,971,44"
+    },
+    "allowed_mcc_mnc": {
+      "type": "string",
+      "description": "JSON array of allowed MCC/MNC pairs, e.g. [{\"mcc\":\"470\",\"mnc\":\"01\"}]"
+    },
+    "reroute_on_fail": {
+      "type": "boolean",
+      "default": true,
+      "description": "If device fails (number not on platform), reroute to fallback supplier"
+    },
+    "reroute_supplier_id": {
+      "type": "string",
+      "description": "Fallback supplier ID when device delivery fails or number is not on platform"
+    },
+    "reroute_supplier_name": {
+      "type": "string"
+    },
+    "billing_type": {
+      "type": "string",
+      "enum": [
+        "send",
+        "submit",
+        "delivery"
+      ],
+      "default": "delivery",
+      "description": "For device/android suppliers: billing_type is always delivery (DLR-based)"
+    },
+    "total_sent": {
+      "type": "number",
+      "default": 0
+    },
+    "total_delivered": {
+      "type": "number",
+      "default": 0
+    },
+    "total_failed": {
+      "type": "number",
+      "default": 0
+    },
+    "total_rerouted": {
+      "type": "number",
+      "default": 0
+    },
     "status": {
       "type": "string",
       "enum": [
@@ -113,12 +173,10 @@
       "default": 100
     },
     "content_template_id": {
-      "type": "string",
-      "description": "Linked ContentTemplate ID for OTP digit unicode / body translation"
+      "type": "string"
     },
     "otp_unicode_preset": {
-      "type": "string",
-      "description": "Name of OTP Unicode preset to apply on this supplier"
+      "type": "string"
     },
     "otp_unicode_enabled": {
       "type": "boolean",

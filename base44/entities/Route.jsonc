@@ -22,10 +22,33 @@
     },
     "backup_supplier_id": {
       "type": "string",
-      "description": "Backup supplier ID"
+      "description": "Backup supplier ID (used when primary fails)"
     },
     "backup_supplier_name": {
       "type": "string"
+    },
+    "device_reroute_supplier_id": {
+      "type": "string",
+      "description": "Fallback supplier when device (WA/TG/IMO/Android) fails \u2014 number not on platform, not registered, etc."
+    },
+    "device_reroute_supplier_name": {
+      "type": "string"
+    },
+    "device_reroute_to": {
+      "type": "string",
+      "enum": [
+        "smpp",
+        "http",
+        "voice_otp",
+        "none"
+      ],
+      "default": "smpp",
+      "description": "What type of fallback to use when device delivery fails"
+    },
+    "reroute_on_device_fail": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically reroute to fallback supplier when device delivery fails"
     },
     "mcc": {
       "type": "string"
@@ -75,12 +98,10 @@
       "default": false
     },
     "otp_unicode_preset_id": {
-      "type": "string",
-      "description": "OtpUnicodePreset ID to apply on this route"
+      "type": "string"
     },
     "content_template_id": {
-      "type": "string",
-      "description": "ContentTemplate ID to apply on this route"
+      "type": "string"
     }
   },
   "required": [

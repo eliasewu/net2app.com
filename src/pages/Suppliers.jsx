@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi, BookOpen, Smartphone } from "lucide-react";
+import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi, BookOpen, Smartphone, TabletSmartphone } from "lucide-react";
 import { toast } from "sonner";
 import HttpApiTemplates from "@/components/suppliers/HttpApiTemplates";
 import DeviceConnectTab from "@/components/suppliers/DeviceConnectTab";
@@ -24,6 +24,7 @@ const SUPPLIER_CATEGORIES = [
   { key: "whatsapp", label: "WhatsApp API", icon: Send, color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   { key: "telegram", label: "Telegram API", icon: Wifi, color: "bg-sky-50 text-sky-700 border-sky-200" },
   { key: "device", label: "Device (WA/TG/IMO)", icon: Smartphone, color: "bg-purple-50 text-purple-700 border-purple-200" },
+  { key: "android", label: "Android SMS", icon: TabletSmartphone, color: "bg-orange-50 text-orange-700 border-orange-200" },
 ];
 
 const SMS_PROVIDERS = [
@@ -40,6 +41,7 @@ const VOICE_PROVIDERS = ["Borno VoiceOTP", "Twilio Voice", "Custom SIP", "Asteri
 const WHATSAPP_PROVIDERS = ["WhatsApp Business API", "Twilio WhatsApp", "360dialog", "Custom API"];
 const TELEGRAM_PROVIDERS = ["Telegram Bot API", "Custom API"];
 const DEVICE_PROVIDERS = ["WhatsApp Device", "Telegram Device", "IMO Device"];
+const ANDROID_PROVIDERS = ["Android SMS (APK)", "SMS Gateway Android", "Custom Android Webhook"];
 
 const emptySupplier = {
   name: "", category: "sms", provider_type: "", contact_person: "", email: "", phone: "",
@@ -104,6 +106,7 @@ export default function Suppliers() {
     if (cat === "whatsapp") return WHATSAPP_PROVIDERS;
     if (cat === "telegram") return TELEGRAM_PROVIDERS;
     if (cat === "device") return DEVICE_PROVIDERS;
+    if (cat === "android") return ANDROID_PROVIDERS;
     return [];
   };
 
@@ -150,12 +153,12 @@ export default function Suppliers() {
 
         {SUPPLIER_CATEGORIES.map(cat => (
           <TabsContent key={cat.key} value={cat.key} className="mt-4">
-            {cat.key === "device" ? (
-              /* Device tab: show QR connect panel + table of connected devices */
+            {(cat.key === "device" || cat.key === "android") ? (
+              /* Device + Android tab: show QR/Android connect panel */
               <div className="space-y-4">
                 <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
-                  <p className="font-semibold mb-1">📱 Device Connect — WhatsApp / Telegram / IMO as SMS Supplier</p>
-                  <p className="text-xs">Scan QR code with your phone to link a device. Once connected, it appears as a Supplier in Routes and can deliver SMS messages via WhatsApp, Telegram, or IMO channels.</p>
+                  <p className="font-semibold mb-1">📱 Device & Android SMS Connect — Dedicated Suppliers per Destination</p>
+                  <p className="text-xs">WhatsApp, Telegram, IMO, and Android SIM devices — each linked device is a <strong>separate dedicated supplier</strong> with its own allowed destinations, fallback reroute settings, and DLR-based billing. Do not mix channels in one route.</p>
                 </div>
                 <DeviceConnectTab />
               </div>
