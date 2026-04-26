@@ -35,6 +35,7 @@ import TenantManagement from './pages/TenantManagement';
 import DeviceConnect from './pages/DeviceConnect';
 import LandingPage from './pages/LandingPage';
 import LandingAdmin from './pages/LandingAdmin';
+import PricingPlans from './pages/PricingPlans';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -88,6 +89,7 @@ const AuthenticatedApp = () => {
         <Route path="/tenants" element={<TenantManagement />} />
         <Route path="/device-connect" element={<DeviceConnect />} />
         <Route path="/landing-admin" element={<LandingAdmin />} />
+        <Route path="/pricing" element={<PricingPlans />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
