@@ -256,21 +256,17 @@ export default function Clients() {
                 </div>
                 <div className="space-y-2">
                   <Label>Force DLR Timeout (seconds)</Label>
-                  <Select value={String(form.force_dlr_timeout || 30)} onValueChange={(v) => set('force_dlr_timeout', Number(v))} disabled={!form.force_dlr}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">5 seconds</SelectItem>
-                      <SelectItem value="10">10 seconds</SelectItem>
-                      <SelectItem value="15">15 seconds</SelectItem>
-                      <SelectItem value="30">30 seconds</SelectItem>
-                      <SelectItem value="60">60 seconds (1 min)</SelectItem>
-                      <SelectItem value="120">120 seconds (2 min)</SelectItem>
-                      <SelectItem value="300">300 seconds (5 min)</SelectItem>
-                      <SelectItem value="600">600 seconds (10 min)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    disabled={!form.force_dlr}
+                    value={form.force_dlr_timeout ?? 30}
+                    onChange={(e) => set('force_dlr_timeout', Math.max(1, Number(e.target.value)))}
+                    placeholder="e.g. 1, 5, 30, 120"
+                  />
                   {form.force_dlr && (
-                    <p className="text-xs text-muted-foreground">DLR notification will be sent to client {form.force_dlr_timeout}s after message is submitted.</p>
+                    <p className="text-xs text-muted-foreground">DLR sent to client <strong>{form.force_dlr_timeout}s</strong> after submission.</p>
                   )}
                 </div>
               </div>
