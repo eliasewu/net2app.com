@@ -61,6 +61,7 @@ const DEFAULT_NAV_GROUPS = [
       { label: "Tenants", icon: Users, path: "/tenants" },
       { label: "User Mgmt", icon: Shield, path: "/users" },
       { label: "Website Manager", icon: Globe, path: "/landing-admin" },
+      { label: "Customer Portal", icon: Users, path: "/portal-manager" },
     ]
   }
 ];

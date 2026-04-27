@@ -36,6 +36,8 @@ import DeviceConnect from './pages/DeviceConnect';
 import LandingPage from './pages/LandingPage';
 import LandingAdmin from './pages/LandingAdmin';
 import PricingPlans from './pages/PricingPlans';
+import CustomerPortal from './pages/CustomerPortal';
+import PortalManager from './pages/PortalManager';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -90,7 +92,9 @@ const AuthenticatedApp = () => {
         <Route path="/device-connect" element={<DeviceConnect />} />
         <Route path="/landing-admin" element={<LandingAdmin />} />
         <Route path="/pricing" element={<PricingPlans />} />
+        <Route path="/portal-manager" element={<PortalManager />} />
       </Route>
+      <Route path="/portal" element={<CustomerPortal />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
