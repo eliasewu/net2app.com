@@ -1649,6 +1649,19 @@ CALL net2app.sp_generate_invoice(
             <p>3. Update <code>/etc/asterisk/extensions.conf</code> — configure your dial plan</p>
             <p>4. Reload: <code>asterisk -rx "core reload"</code> or <code>systemctl restart asterisk</code></p>
           </InfoBox>
+          <CodeBlock label="Quick Fix — only if /etc/asterisk directory is missing" code={`# Run this ONLY if Asterisk is already installed but config dir is missing
+mkdir -p /etc/asterisk /var/lib/asterisk /var/log/asterisk \\
+         /var/spool/asterisk /var/run/asterisk
+
+id asterisk 2>/dev/null || useradd -r -d /var/lib/asterisk -s /sbin/nologin asterisk
+
+chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk \\
+    /var/log/asterisk /var/spool/asterisk /usr/lib/asterisk
+
+# Then re-run: make samples (from the asterisk-20* source dir)
+cd /usr/src/asterisk-20*/
+make samples
+systemctl restart asterisk`} color="text-yellow-300" />
           <CodeBlock label="SIP Configuration (/etc/asterisk/sip.conf)" code={SCRIPTS.sip_conf} />
           <CodeBlock label="AMI Configuration (/etc/asterisk/manager.conf)" code={SCRIPTS.ami_conf} />
         </TabsContent>
