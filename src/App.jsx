@@ -20,7 +20,7 @@ import ContentTemplates from './pages/ContentTemplates';
 import Reports from './pages/Reports';
 import Invoices from './pages/Invoices';
 import Notifications from './pages/Notifications';
-import TestSms from './pages/TestSms';
+import TestSms from './pages/TestSms.jsx';
 import Settings from './pages/Settings';
 import UserManagement from './pages/UserManagement';
 import NumberTranslation from './pages/NumberTranslation';
