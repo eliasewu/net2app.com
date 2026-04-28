@@ -27,6 +27,7 @@ const DEFAULT_NAV_GROUPS = [
       { label: "Clients", icon: Users, path: "/clients" },
       { label: "Suppliers", icon: Building2, path: "/suppliers" },
       { label: "Routes", icon: Route, path: "/routes" },
+      { label: "Routing Rules", icon: Zap, path: "/routing-rules" },
       { label: "Rates", icon: DollarSign, path: "/rates" },
       { label: "MCC/MNC", icon: Radio, path: "/mccmnc" },
       { label: "Translation", icon: ArrowRightLeft, path: "/translation" },

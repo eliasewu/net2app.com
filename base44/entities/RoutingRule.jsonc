@@ -1,0 +1,121 @@
+{
+  "name": "RoutingRule",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Rule name"
+    },
+    "description": {
+      "type": "string"
+    },
+    "rule_type": {
+      "type": "string",
+      "enum": [
+        "lcr",
+        "load_balance",
+        "failover",
+        "prefix_lock",
+        "time_based",
+        "client_override",
+        "block"
+      ],
+      "description": "lcr=Least Cost Routing, load_balance=Split traffic %, failover=Primary+backup chain, prefix_lock=Force specific supplier for prefix, time_based=Different supplier by hour, client_override=Force supplier for a client, block=Block traffic matching condition"
+    },
+    "priority": {
+      "type": "number",
+      "default": 10,
+      "description": "Lower number = evaluated first. Rules are applied in priority order."
+    },
+    "match_prefix": {
+      "type": "string",
+      "description": "Destination prefix to match (e.g. 880, 971). Blank = match all."
+    },
+    "match_mcc": {
+      "type": "string",
+      "description": "MCC to match. Blank = all."
+    },
+    "match_mnc": {
+      "type": "string",
+      "description": "MNC to match. Blank = all."
+    },
+    "match_client_id": {
+      "type": "string",
+      "description": "Restrict rule to a specific client. Blank = all clients."
+    },
+    "match_client_name": {
+      "type": "string"
+    },
+    "match_sender_pattern": {
+      "type": "string",
+      "description": "Regex or wildcard to match sender ID. Blank = all."
+    },
+    "match_time_start": {
+      "type": "string",
+      "description": "HH:MM \u2014 start of time window (24h). Used for time_based rules."
+    },
+    "match_time_end": {
+      "type": "string",
+      "description": "HH:MM \u2014 end of time window (24h)."
+    },
+    "match_days": {
+      "type": "string",
+      "description": "JSON array of day numbers 0=Sun..6=Sat. Blank = all days."
+    },
+    "supplier_ids": {
+      "type": "string",
+      "description": "JSON array of supplier IDs in priority order (for failover/lcr) or with weights (for load_balance)"
+    },
+    "supplier_names": {
+      "type": "string",
+      "description": "JSON array of supplier names (display only)"
+    },
+    "load_balance_weights": {
+      "type": "string",
+      "description": "JSON array of integers (0-100) matching supplier_ids order. Must sum to 100. e.g. [70,30]"
+    },
+    "lcr_auto": {
+      "type": "boolean",
+      "default": true,
+      "description": "For LCR: auto-pick cheapest supplier based on live Rate table"
+    },
+    "max_cost_per_sms": {
+      "type": "number",
+      "description": "LCR cap \u2014 skip suppliers more expensive than this rate"
+    },
+    "block_reason": {
+      "type": "string",
+      "description": "Reason shown in fail_reason when block rule fires"
+    },
+    "action_on_all_fail": {
+      "type": "string",
+      "enum": [
+        "reject",
+        "fallback_any",
+        "queue"
+      ],
+      "default": "reject",
+      "description": "What to do if all suppliers in the rule fail"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "hit_count": {
+      "type": "number",
+      "default": 0,
+      "description": "How many messages matched this rule (incremented by engine)"
+    },
+    "last_hit_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "rule_type"
+  ]
+}
