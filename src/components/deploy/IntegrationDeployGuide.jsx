@@ -54,23 +54,207 @@ systemctl start mariadb kannel nginx
 echo "✅ System packages installed successfully"`,
 
   asterisk: `#!/bin/bash
-# Install Asterisk 20 LTS on Debian 12
+# ═══════════════════════════════════════════════════════════════════
+#  Asterisk Full Install Script
+#  Run as root: bash install_asterisk.sh
+# ═══════════════════════════════════════════════════════════════════
 
+set -e
+
+echo "════════════════════════════════════════════"
+echo "  Asterisk Installer"
+echo "════════════════════════════════════════════"
+
+# ── Step 1: Update System ────────────────────────────────────────
+echo "[1/7] Updating system..."
+apt-get update -y
+apt-get upgrade -y
+
+# ── Step 2: Install Dependencies ────────────────────────────────
+echo "[2/7] Installing dependencies..."
+apt-get install -y \\
+    build-essential wget curl git \\
+    libssl-dev libncurses5-dev libnewt-dev \\
+    libxml2-dev libsqlite3-dev uuid-dev \\
+    libjansson-dev libedit-dev libsrtp2-dev \\
+    libgsm1-dev mpg123 sox \\
+    unixodbc unixodbc-dev odbcinst subversion
+
+# ── Step 3: Download Asterisk ────────────────────────────────────
+echo "[3/7] Downloading Asterisk..."
 cd /usr/src
-wget https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.tar.gz
-tar xzf asterisk-20-current.tar.gz
+wget -q https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.tar.gz
+tar -xzf asterisk-20-current.tar.gz
 cd asterisk-20*/
 
+# ── Step 4: Install Prerequisites ───────────────────────────────
+echo "[4/7] Installing Asterisk prerequisites..."
 contrib/scripts/install_prereq install
+
+# ── Step 5: Configure and Compile ───────────────────────────────
+echo "[5/7] Configuring and compiling Asterisk..."
 ./configure --with-jansson-bundled
-make menuselect  # Enable: chan_sip, chan_pjsip, app_dial, cdr_mysql, res_odbc
+make menuselect.makeopts
+
+menuselect/menuselect \\
+    --enable chan_sip \\
+    --enable chan_pjsip \\
+    --enable res_pjsip \\
+    --enable app_voicemail \\
+    --enable codec_gsm \\
+    --enable format_mp3 \\
+    menuselect.makeopts
+
 make -j$(nproc)
 make install && make samples && make config
-ldconfig
 
+# ── Step 6: Users, Permissions & Config ─────────────────────────
+echo "[6/7] Setting up configuration..."
+id asterisk 2>/dev/null || useradd -r -d /var/lib/asterisk -s /sbin/nologin asterisk
+
+chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk \\
+    /var/log/asterisk /var/spool/asterisk /usr/lib/asterisk
+
+# asterisk.conf
+tee /etc/asterisk/asterisk.conf > /dev/null << 'CONF'
+[options]
+runuser = asterisk
+rungroup = asterisk
+verbose = 3
+debug = 0
+alwaysfork = yes
+
+[directories]
+astetcdir => /etc/asterisk
+astmoddir => /usr/lib/asterisk/modules
+astvarlibdir => /var/lib/asterisk
+astdbdir => /var/lib/asterisk
+astkeydir => /var/lib/asterisk
+astdatadir => /var/lib/asterisk
+astagidir => /var/lib/asterisk/agi-bin
+astspooldir => /var/spool/asterisk
+astrundir => /var/run/asterisk
+astlogdir => /var/log/asterisk
+astsbindir => /usr/sbin
+CONF
+
+# sip.conf
+tee /etc/asterisk/sip.conf > /dev/null << 'CONF'
+[general]
+context = default
+bindport = 5060
+bindaddr = 0.0.0.0
+language = en
+disallow = all
+allow = ulaw
+allow = alaw
+allow = gsm
+nat = force_rport,comedia
+qualify = yes
+
+[1001]
+type = friend
+context = default
+host = dynamic
+secret = password1001
+callerid = Extension 1001 <1001>
+disallow = all
+allow = ulaw
+allow = alaw
+
+[1002]
+type = friend
+context = default
+host = dynamic
+secret = password1002
+callerid = Extension 1002 <1002>
+disallow = all
+allow = ulaw
+allow = alaw
+CONF
+
+# extensions.conf
+tee /etc/asterisk/extensions.conf > /dev/null << 'CONF'
+[general]
+static = yes
+writeprotect = no
+
+[default]
+exten => 1001,1,Dial(SIP/1001,20)
+exten => 1001,2,VoiceMail(1001@default)
+exten => 1001,3,Hangup()
+
+exten => 1002,1,Dial(SIP/1002,20)
+exten => 1002,2,VoiceMail(1002@default)
+exten => 1002,3,Hangup()
+
+; Echo test
+exten => 9999,1,Answer()
+exten => 9999,2,Echo()
+exten => 9999,3,Hangup()
+CONF
+
+# logger.conf
+tee /etc/asterisk/logger.conf > /dev/null << 'CONF'
+[general]
+dateformat = %F %T
+
+[logfiles]
+console => verbose,notice,warning,error
+messages => notice,warning,error
+full => verbose,notice,warning,error,debug
+CONF
+
+# manager.conf (AMI)
+tee /etc/asterisk/manager.conf > /dev/null << 'CONF'
+[general]
+enabled = yes
+port = 5038
+bindaddr = 127.0.0.1
+
+[admin]
+secret = CHANGE_AMI_PASSWORD
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.0
+read = all
+write = all
+CONF
+
+chown -R asterisk:asterisk /etc/asterisk
+
+# ── Step 7: Enable and Start ─────────────────────────────────────
+echo "[7/7] Starting Asterisk..."
+systemctl daemon-reload
 systemctl enable asterisk
 systemctl start asterisk
-asterisk -rx "core show version"`,
+sleep 3
+
+echo ""
+echo "── Service Status ───────────────────────────"
+systemctl is-active asterisk && echo "Asterisk: RUNNING ✅" || echo "Asterisk: FAILED ❌"
+
+echo ""
+echo "── Port Check ───────────────────────────────"
+ss -tlnp | grep -E "5060|5038"
+
+echo ""
+echo "── Version ──────────────────────────────────"
+asterisk -V
+
+echo ""
+echo "════════════════════════════════════════════"
+echo "  Installation Complete!"
+echo ""
+echo "  Useful Commands:"
+echo "  asterisk -rvvv              # Connect to CLI"
+echo "  systemctl status asterisk"
+echo "  tail -f /var/log/asterisk/messages"
+echo ""
+echo "  ⚠️  Remember to update:"
+echo "  • /etc/asterisk/sip.conf       - SIP passwords"
+echo "  • /etc/asterisk/manager.conf   - AMI password"
+echo "  • /etc/asterisk/extensions.conf - Dial plan"
+echo "════════════════════════════════════════════"`,
 
   kannel_install: `#!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
@@ -1453,7 +1637,18 @@ CALL net2app.sp_generate_invoice(
 
         {/* Asterisk */}
         <TabsContent value="asterisk" className="mt-4 space-y-4">
-          <CodeBlock label="Step 7 — Install Asterisk 20 LTS" code={SCRIPTS.asterisk} />
+          <InfoBox color="green">
+            <p className="font-bold">One-shot Asterisk 20 LTS install script — run as root on Debian 12</p>
+            <p>Downloads, compiles, and configures Asterisk with chan_sip, chan_pjsip, AMI, and basic dial plan. Writes all config files and starts the systemd service automatically.</p>
+          </InfoBox>
+          <CodeBlock label="Save as install_asterisk.sh → chmod +x install_asterisk.sh → bash install_asterisk.sh" code={SCRIPTS.asterisk} color="text-green-400" />
+          <InfoBox color="orange">
+            <p className="font-bold">After running the script:</p>
+            <p>1. Update <code>/etc/asterisk/sip.conf</code> — change SIP extension passwords</p>
+            <p>2. Update <code>/etc/asterisk/manager.conf</code> — set a strong AMI password</p>
+            <p>3. Update <code>/etc/asterisk/extensions.conf</code> — configure your dial plan</p>
+            <p>4. Reload: <code>asterisk -rx "core reload"</code> or <code>systemctl restart asterisk</code></p>
+          </InfoBox>
           <CodeBlock label="SIP Configuration (/etc/asterisk/sip.conf)" code={SCRIPTS.sip_conf} />
           <CodeBlock label="AMI Configuration (/etc/asterisk/manager.conf)" code={SCRIPTS.ami_conf} />
         </TabsContent>
