@@ -1,9 +1,10 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import MccMncPickerDialog from "@/components/rates/MccMncPickerDialog";
+import BulkRateUpload from "@/components/rates/BulkRateUpload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Upload, Download, Globe, CheckCircle, Send, Mail } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Download, Globe, CheckCircle, Mail } from "lucide-react";
 import { toast } from "sonner";
 import RateEmailDialog from "@/components/rates/RateEmailDialog";
 
@@ -29,7 +30,7 @@ export default function Rates() {
   const [cellValue, setCellValue] = useState("");
   const [emailDialog, setEmailDialog] = useState(null); // { entityId, entityName, email, type }
   const [showInactive, setShowInactive] = useState(false);
-  const fileRef = useRef();
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const qc = useQueryClient();
 
   const { data: rates = [] } = useQuery({ queryKey: ["rates"], queryFn: () => base44.entities.Rate.list("-created_date", 500), initialData: [] });
@@ -95,41 +96,6 @@ export default function Rates() {
     setEditDialogOpen(false);
   };
 
-  const handleCsvUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    toast.info("Parsing CSV...");
-    const text = await file.text();
-    const lines = text.trim().split("\n");
-    const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-    const rows = lines.slice(1).map(line => {
-      const vals = line.split(",");
-      const obj = {};
-      headers.forEach((h, i) => { obj[h] = vals[i]?.trim(); });
-      return obj;
-    });
-    let created = 0;
-    for (const row of rows) {
-      await base44.entities.Rate.create({
-        type: row.type || tab,
-        entity_id: row.entity_id || "",
-        entity_name: row.entity_name || "",
-        mcc: row.mcc || "",
-        mnc: row.mnc || "",
-        country: row.country || "",
-        network: row.network || "",
-        prefix: row.prefix || "",
-        rate: parseFloat(row.rate) || 0,
-        currency: row.currency || "USD",
-        status: "active"
-      });
-      created++;
-    }
-    qc.invalidateQueries({ queryKey: ["rates"] });
-    toast.success(`Imported ${created} rates from CSV`);
-    e.target.value = "";
-  };
-
   const downloadCsv = () => {
     const filtered = rates.filter(r => r.type === tab);
     const headers = "type,entity_id,entity_name,mcc,mnc,country,network,prefix,rate,currency,status";
@@ -162,8 +128,7 @@ export default function Rates() {
     <div className="space-y-4">
       <PageHeader title="Rate Management" description="MCC/MNC based rate cards — Excel-style editing">
         <Button variant="outline" size="sm" onClick={downloadCsv}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
-        <Button variant="outline" size="sm" onClick={() => fileRef.current.click()}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
-        <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
+        <Button variant="outline" size="sm" onClick={() => setBulkUploadOpen(true)}><Upload className="w-4 h-4 mr-1" />Bulk Import CSV</Button>
         <Button size="sm" onClick={() => setPickerOpen(true)}><Globe className="w-4 h-4 mr-1" />Pick Destinations</Button>
         <Button size="sm" onClick={() => { setEditing(null); setForm({ type: tab, entity_id: "", mcc: "", mnc: "", country: "", network: "", prefix: "", rate: "", currency: "USD", status: "active" }); setEditDialogOpen(true); }}>
           <Plus className="w-4 h-4 mr-1" />Add Rate
@@ -289,6 +254,9 @@ export default function Rates() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Bulk CSV Upload */}
+      <BulkRateUpload open={bulkUploadOpen} onClose={() => { setBulkUploadOpen(false); qc.invalidateQueries({ queryKey: ["rates"] }); }} />
 
       {/* Rate Email Dialog */}
       {emailDialog && (
