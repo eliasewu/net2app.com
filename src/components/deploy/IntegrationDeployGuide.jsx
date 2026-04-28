@@ -1107,38 +1107,93 @@ allow=g729
 ; Tenant calls are tagged with accountcode = tenant_id for CDR billing`,
 
   firewall: `#!/bin/bash
-# Net2app UFW Firewall – Debian 12
-# Covers: SSH, SIP, RTP, Kannel, SMPP server ports, HTTP tenant panels
+# ═══════════════════════════════════════════════════════════════════
+#  Net2app UFW Firewall Setup — Debian 12
+#  Run as root: bash setup_ufw.sh
+# ═══════════════════════════════════════════════════════════════════
 
+set -e
+
+echo "════════════════════════════════════════════"
+echo "  Net2app UFW Firewall Setup"
+echo "════════════════════════════════════════════"
+
+# ── Step 1: Install UFW ──────────────────────────────────────────
+echo "[1/5] Installing UFW..."
+apt-get update -y
+apt-get install -y ufw
+
+# ── Step 2: Reset UFW to clean state ────────────────────────────
+echo "[2/5] Resetting UFW..."
+echo "y" | ufw reset
+
+# ── Step 3: Set Defaults ─────────────────────────────────────────
+echo "[3/5] Setting defaults..."
 ufw default deny incoming
 ufw default allow outgoing
-ufw allow 22/tcp           # SSH
-ufw allow 80/tcp           # HTTP
-ufw allow 443/tcp          # HTTPS
-ufw allow 5060/udp         # SIP
-ufw allow 5060/tcp         # SIP TCP
-ufw allow 5080/udp         # SIP alt
-ufw allow 6060/udp         # IPTSP alt
-ufw allow 7074/udp         # BD IIGW
-ufw allow 10000:20000/udp  # RTP audio
 
-# Kannel bearerbox — restrict to localhost
-ufw allow from 127.0.0.1 to any port 13000
-ufw allow from 127.0.0.1 to any port 13013
+# ── Step 4: Add Rules ────────────────────────────────────────────
+echo "[4/5] Adding firewall rules..."
 
-# SMPP base port (Kannel server)
-ufw allow 9095/tcp
-# Tenant SMPP ports (auto-opened per tenant via dashboard)
-ufw allow 9096:9200/tcp
+# ── Basic Services ───────────────────────────────────────────────
+ufw allow 22/tcp      comment 'SSH'
+ufw allow 80/tcp      comment 'HTTP'
+ufw allow 443/tcp     comment 'HTTPS'
 
-# Tenant HTTP panel ports
-ufw allow 4000:6000/tcp
+# ── SIP / VoIP ───────────────────────────────────────────────────
+ufw allow 5060/udp    comment 'SIP UDP'
+ufw allow 5060/tcp    comment 'SIP TCP'
+ufw allow 5080/udp    comment 'SIP ALT UDP'
+ufw allow 5080/tcp    comment 'SIP ALT TCP'
+ufw allow 6060/udp    comment 'IPTSP ALT'
+ufw allow 7074/udp    comment 'BD IIGW'
 
-# MariaDB — localhost only
-ufw deny 3306
+# ── RTP Audio ────────────────────────────────────────────────────
+ufw allow 10000:20000/udp comment 'RTP Audio'
 
-ufw enable
-ufw status verbose`,
+# ── Kannel — localhost only ──────────────────────────────────────
+ufw allow from 127.0.0.1 to any port 13000 comment 'Kannel bearerbox admin'
+ufw allow from 127.0.0.1 to any port 13001 comment 'Kannel smsbox port'
+ufw allow from 127.0.0.1 to any port 13013 comment 'Kannel sendsms'
+
+# ── SMPP Ports ───────────────────────────────────────────────────
+ufw allow 9095/tcp          comment 'SMPP base port'
+ufw allow 9096:9200/tcp     comment 'Tenant SMPP ports'
+
+# ── Tenant HTTP Panel Ports ──────────────────────────────────────
+ufw allow 4000:6000/tcp     comment 'Tenant HTTP panels'
+
+# ── MariaDB — block external access ─────────────────────────────
+ufw deny 3306               comment 'MariaDB localhost only'
+
+# ── AMI Asterisk Manager — localhost only ────────────────────────
+ufw allow from 127.0.0.1 to any port 5038 comment 'Asterisk AMI'
+
+# ── Step 5: Enable UFW ───────────────────────────────────────────
+echo "[5/5] Enabling UFW..."
+echo "y" | ufw enable
+
+# ── Verify ───────────────────────────────────────────────────────
+echo ""
+echo "── UFW Status ───────────────────────────────"
+ufw status verbose
+
+echo ""
+echo "── Numbered Rules ───────────────────────────"
+ufw status numbered
+
+echo ""
+echo "════════════════════════════════════════════"
+echo "  Firewall Setup Complete!"
+echo ""
+echo "  Useful Commands:"
+echo "  ufw status verbose          # Show all rules"
+echo "  ufw status numbered         # Show numbered rules"
+echo "  ufw delete NUMBER           # Delete a rule"
+echo "  ufw allow PORT/tcp          # Add new rule"
+echo "  ufw disable                 # Disable firewall"
+echo "  ufw reload                  # Reload rules"
+echo "════════════════════════════════════════════"`,
 
   github_deploy: `#!/bin/bash
 # ════════════════════════════════════════════════════════════════════
@@ -1670,7 +1725,11 @@ systemctl restart asterisk`} color="text-yellow-300" />
 
         {/* Firewall */}
         <TabsContent value="security" className="mt-4 space-y-4">
-          <CodeBlock label="Step 8 — UFW Firewall (includes all tenant ports)" code={SCRIPTS.firewall} />
+          <InfoBox color="blue">
+            <p className="font-bold">One-shot UFW firewall setup — run as root on Debian 12</p>
+            <p>Resets UFW, sets defaults, opens all required ports (SSH, SIP, RTP, Kannel localhost, SMPP, tenant HTTP panels), blocks MariaDB externally, and restricts AMI to localhost.</p>
+          </InfoBox>
+          <CodeBlock label="Save as setup_ufw.sh → chmod +x setup_ufw.sh → bash setup_ufw.sh" code={SCRIPTS.firewall} color="text-green-400" />
           <CodeBlock label="Fail2ban — protect SIP + SSH" code={`# /etc/fail2ban/jail.local
 [asterisk]
 enabled = true
