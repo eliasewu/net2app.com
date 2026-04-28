@@ -865,39 +865,155 @@ EOF
 echo "Net2app master database created."`,
 
   tenant_db: `#!/bin/bash
-# ── Per-Tenant Database Provisioning ─────────────────────────────
-# Run this when creating each new tenant from dashboard.
-# Replace TENANT_ID, TENANT_NAME, TENANT_PASS accordingly.
+# ═══════════════════════════════════════════════════════════════════
+#  Net2app — Per-Tenant Database Provisioning Script
+#  Run as root: bash create_tenant.sh
+#  Usage: bash create_tenant.sh <tenant_id> <tenant_name> <tenant_pass>
+# ═══════════════════════════════════════════════════════════════════
 
-TENANT_ID="tenant_acme"
-TENANT_NAME="acme_db"
-TENANT_PASS="TenantSecurePass!123"
+set -e
 
+# ── Arguments or Defaults ────────────────────────────────────────
+TENANT_ID="\${1:-tenant_acme}"
+TENANT_NAME="\${2:-acme_db}"
+TENANT_PASS="\${3:-TenantSecurePass!123}"
+
+echo "════════════════════════════════════════════"
+echo "  Net2app Tenant Provisioning"
+echo "  Tenant ID   : \$TENANT_ID"
+echo "  Database    : \$TENANT_NAME"
+echo "════════════════════════════════════════════"
+
+# ── Step 1: Verify Global DB Exists ─────────────────────────────
+echo "[1/5] Checking net2app global database..."
+mysql -u root -e "USE net2app;" 2>/dev/null || {
+    echo "ERROR: Global database 'net2app' not found!"
+    echo "   Please run the global DB setup script first."
+    exit 1
+}
+echo "Global database OK"
+
+# ── Step 2: Create Tenant Database and User ──────────────────────
+echo "[2/5] Creating tenant database and user..."
 mysql -u root << EOF
-CREATE DATABASE IF NOT EXISTS \\\`\${TENANT_NAME}\\\` CHARACTER SET utf8mb4;
-CREATE USER IF NOT EXISTS '\${TENANT_ID}'@'localhost' IDENTIFIED BY '\${TENANT_PASS}';
-GRANT ALL PRIVILEGES ON \\\`\${TENANT_NAME}\\\`.*  TO '\${TENANT_ID}'@'localhost';
--- Tenant can also SELECT from shared global tables
-GRANT SELECT ON net2app.cdr TO '\${TENANT_ID}'@'localhost';
-GRANT SELECT ON net2app.sms_log TO '\${TENANT_ID}'@'localhost';
+CREATE DATABASE IF NOT EXISTS \\\`\${TENANT_NAME}\\\`
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS '\${TENANT_ID}'@'localhost'
+    IDENTIFIED BY '\${TENANT_PASS}';
+
+GRANT ALL PRIVILEGES ON \\\`\${TENANT_NAME}\\\`.* TO '\${TENANT_ID}'@'localhost';
+
+GRANT SELECT ON net2app.cdr        TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT ON net2app.sms_log    TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT ON net2app.clients    TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT ON net2app.suppliers  TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT ON net2app.routes     TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT ON net2app.rates      TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT ON net2app.invoices   TO '\${TENANT_ID}'@'localhost';
+
 FLUSH PRIVILEGES;
 EOF
+echo "Tenant database and user created"
 
-# Create tenant-specific tables (mirror of global, filtered by tenant_id)
-mysql -u root "\${TENANT_NAME}" << 'ENDSQL'
--- Tenant sees their own clients, suppliers, routes, rates, logs
--- These are VIEWS into the global tables filtered by tenant_id
+# ── Step 3: Create Tenant Views ──────────────────────────────────
+echo "[3/5] Creating tenant filtered views..."
+mysql -u root "\${TENANT_NAME}" << EOF
+CREATE OR REPLACE VIEW v_clients AS
+    SELECT * FROM net2app.clients WHERE tenant_id = '\${TENANT_ID}';
 
-CREATE OR REPLACE VIEW v_clients   AS SELECT * FROM net2app.clients   WHERE tenant_id = DATABASE();
-CREATE OR REPLACE VIEW v_suppliers AS SELECT * FROM net2app.suppliers  WHERE tenant_id = DATABASE();
-CREATE OR REPLACE VIEW v_routes    AS SELECT * FROM net2app.routes     WHERE tenant_id = DATABASE();
-CREATE OR REPLACE VIEW v_rates     AS SELECT * FROM net2app.rates      WHERE tenant_id = DATABASE();
-CREATE OR REPLACE VIEW v_sms_log   AS SELECT * FROM net2app.sms_log    WHERE tenant_id = DATABASE();
-CREATE OR REPLACE VIEW v_cdr       AS SELECT * FROM net2app.cdr        WHERE tenant_id = DATABASE();
-CREATE OR REPLACE VIEW v_invoices  AS SELECT * FROM net2app.invoices   WHERE tenant_id = DATABASE();
-ENDSQL
+CREATE OR REPLACE VIEW v_suppliers AS
+    SELECT * FROM net2app.suppliers WHERE tenant_id = '\${TENANT_ID}';
 
-echo "Tenant database created."`,
+CREATE OR REPLACE VIEW v_routes AS
+    SELECT * FROM net2app.routes WHERE tenant_id = '\${TENANT_ID}';
+
+CREATE OR REPLACE VIEW v_rates AS
+    SELECT * FROM net2app.rates WHERE tenant_id = '\${TENANT_ID}';
+
+CREATE OR REPLACE VIEW v_sms_log AS
+    SELECT * FROM net2app.sms_log WHERE tenant_id = '\${TENANT_ID}';
+
+CREATE OR REPLACE VIEW v_cdr AS
+    SELECT * FROM net2app.cdr WHERE tenant_id = '\${TENANT_ID}';
+
+CREATE OR REPLACE VIEW v_invoices AS
+    SELECT * FROM net2app.invoices WHERE tenant_id = '\${TENANT_ID}';
+EOF
+echo "Tenant views created"
+
+# ── Step 4: Create Tenant Local Tables ──────────────────────────
+echo "[4/5] Creating tenant local tables..."
+mysql -u root "\${TENANT_NAME}" << 'EOF'
+CREATE TABLE IF NOT EXISTS tenant_settings (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    setting_key   VARCHAR(100) NOT NULL UNIQUE,
+    setting_value TEXT,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    key_name      VARCHAR(100) NOT NULL,
+    api_key       VARCHAR(255) NOT NULL UNIQUE,
+    is_active     TINYINT(1) DEFAULT 1,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at    DATETIME DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS wallet (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    balance       DECIMAL(15,4) DEFAULT 0.0000,
+    currency      VARCHAR(10) DEFAULT 'USD',
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO wallet (balance, currency) VALUES (0.0000, 'USD');
+EOF
+echo "Tenant local tables created"
+
+# ── Step 5: Verify Setup ─────────────────────────────────────────
+echo "[5/5] Verifying tenant setup..."
+
+echo ""
+echo "── Database Check ───────────────────────────"
+mysql -u root -e "SHOW DATABASES LIKE '\${TENANT_NAME}';"
+
+echo ""
+echo "── Views Check ──────────────────────────────"
+mysql -u root "\${TENANT_NAME}" -e "SHOW FULL TABLES WHERE Table_type = 'VIEW';"
+
+echo ""
+echo "── Tables Check ─────────────────────────────"
+mysql -u root "\${TENANT_NAME}" -e "SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';"
+
+echo ""
+echo "── Grants Check ─────────────────────────────"
+mysql -u root -e "SHOW GRANTS FOR '\${TENANT_ID}'@'localhost';"
+
+echo ""
+echo "── Tenant Login Test ────────────────────────"
+mysql -u "\${TENANT_ID}" -p"\${TENANT_PASS}" "\${TENANT_NAME}" \
+    -e "SELECT COUNT(*) AS sms_count FROM v_sms_log;" 2>/dev/null \
+    && echo "Tenant login OK" \
+    || echo "Tenant login FAILED"
+
+echo ""
+echo "════════════════════════════════════════════"
+echo "  Tenant Provisioning Complete!"
+echo ""
+echo "  Tenant ID   : \${TENANT_ID}"
+echo "  Database    : \${TENANT_NAME}"
+echo "  Password    : \${TENANT_PASS}"
+echo ""
+echo "  Connection String:"
+echo "  mysql -u \${TENANT_ID} -p \${TENANT_NAME}"
+echo ""
+echo "  Views: v_clients | v_suppliers | v_routes"
+echo "         v_rates   | v_sms_log  | v_cdr | v_invoices"
+echo "════════════════════════════════════════════"`,
 
   billing_trigger: `-- ════════════════════════════════════════════════════════════════════
 --  Net2app Real-Time Billing — Billing-Type Aware Trigger
@@ -1651,11 +1767,37 @@ asterisk -rx "cdr mysql status"`} />
         {/* Tenant DB */}
         <TabsContent value="tenant_db" className="mt-4 space-y-4">
           <InfoBox color="yellow">
-            <p className="font-bold">Per-Tenant Database Provisioning</p>
-            <p>Each new tenant created in the dashboard needs a database user + filtered VIEWs. Run this script once per tenant.</p>
-            <p>Tenant sees only their own clients, suppliers, routes, rates, logs — isolated by tenant_id via SQL VIEWs.</p>
+            <p className="font-bold">Per-Tenant Database Provisioning — one-shot script</p>
+            <p>Accepts arguments: <code>bash create_tenant.sh &lt;tenant_id&gt; &lt;db_name&gt; &lt;password&gt;</code></p>
+            <p>5 steps: verifies global DB → creates tenant DB + user + grants → creates filtered views → creates local tables (wallet, api_keys, settings) → verifies login and isolation.</p>
           </InfoBox>
-          <CodeBlock label="Step 5 — Create Tenant Database + Views (run per tenant)" code={SCRIPTS.tenant_db} color="text-yellow-300" />
+          <CodeBlock label="Save as create_tenant.sh → chmod +x create_tenant.sh → run with args" code={SCRIPTS.tenant_db} color="text-yellow-300" />
+          <CodeBlock label="Usage examples" code={`# Run with defaults (tenant_acme / acme_db)
+bash create_tenant.sh
+
+# Run with custom values
+bash create_tenant.sh tenant_acme acme_db SecurePass123
+
+# Provision multiple tenants
+bash create_tenant.sh tenant_xyz  xyz_db  XyzPass456
+bash create_tenant.sh tenant_abc  abc_db  AbcPass789`} color="text-cyan-300" />
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Data Isolation Architecture</CardTitle></CardHeader>
+            <CardContent>
+              <pre className="text-xs font-mono text-muted-foreground bg-muted p-3 rounded">{`Global DB (net2app)          Tenant DB (acme_db)
+─────────────────────        ──────────────────────────
+clients    ──────────────►   v_clients   (filtered by tenant_id)
+suppliers  ──────────────►   v_suppliers (filtered by tenant_id)
+routes     ──────────────►   v_routes    (filtered by tenant_id)
+rates      ──────────────►   v_rates     (filtered by tenant_id)
+sms_log    ──────────────►   v_sms_log   (filtered by tenant_id)
+cdr        ──────────────►   v_cdr       (filtered by tenant_id)
+invoices   ──────────────►   v_invoices  (filtered by tenant_id)
+                             tenant_settings (local)
+                             api_keys        (local)
+                             wallet          (local)`}</pre>
+            </CardContent>
+          </Card>
           <CodeBlock label="Verify tenant isolation" code={`# Login as tenant DB user — should only see own data
 mysql -u tenant_acme -p acme_db -e "SELECT COUNT(*) FROM v_sms_log;"
 mysql -u tenant_acme -p acme_db -e "SELECT COUNT(*) FROM v_clients;"
