@@ -38,6 +38,7 @@ import LandingAdmin from './pages/LandingAdmin';
 import PricingPlans from './pages/PricingPlans';
 import CustomerPortal from './pages/CustomerPortal';
 import PortalManager from './pages/PortalManager';
+import TenantDashboard from './pages/TenantDashboard';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -93,6 +94,7 @@ const AuthenticatedApp = () => {
         <Route path="/landing-admin" element={<LandingAdmin />} />
         <Route path="/pricing" element={<PricingPlans />} />
         <Route path="/portal-manager" element={<PortalManager />} />
+        <Route path="/tenant-dashboard" element={<TenantDashboard />} />
       </Route>
       <Route path="/portal" element={<CustomerPortal />} />
       <Route path="*" element={<PageNotFound />} />

@@ -15,6 +15,7 @@ const DEFAULT_NAV_GROUPS = [
     label: "Overview",
     items: [
       { label: "Dashboard", icon: LayoutDashboard, path: "/" },
+      { label: "Tenant Dashboard", icon: BarChart3, path: "/tenant-dashboard" },
       { label: "Live Monitor", icon: Monitor, path: "/monitoring" },
     ]
   },
