@@ -39,6 +39,7 @@ import PricingPlans from './pages/PricingPlans';
 import CustomerPortal from './pages/CustomerPortal';
 import PortalManager from './pages/PortalManager';
 import TenantDashboard from './pages/TenantDashboard';
+import AlertRules from './pages/AlertRules';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -95,6 +96,7 @@ const AuthenticatedApp = () => {
         <Route path="/pricing" element={<PricingPlans />} />
         <Route path="/portal-manager" element={<PortalManager />} />
         <Route path="/tenant-dashboard" element={<TenantDashboard />} />
+        <Route path="/alert-rules" element={<AlertRules />} />
       </Route>
       <Route path="/portal" element={<CustomerPortal />} />
       <Route path="*" element={<PageNotFound />} />

@@ -1,0 +1,82 @@
+{
+  "name": "AlertRule",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Alert rule name"
+    },
+    "alert_type": {
+      "type": "string",
+      "enum": [
+        "delivery_rate_below",
+        "failure_rate_above",
+        "balance_below",
+        "volume_drop",
+        "no_traffic"
+      ],
+      "description": "Type of alert condition"
+    },
+    "threshold": {
+      "type": "number",
+      "description": "Threshold value (%, amount, count depending on type)"
+    },
+    "window_minutes": {
+      "type": "number",
+      "default": 60,
+      "description": "Time window in minutes to evaluate the condition over"
+    },
+    "min_messages": {
+      "type": "number",
+      "default": 10,
+      "description": "Minimum message count required before alert triggers (avoids false positives)"
+    },
+    "notify_email": {
+      "type": "string",
+      "description": "Comma-separated email addresses to notify"
+    },
+    "client_id": {
+      "type": "string",
+      "description": "Filter alerts to a specific client (blank = all clients)"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "Filter alerts to a specific supplier (blank = all suppliers)"
+    },
+    "supplier_name": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ],
+      "default": "warning"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "last_triggered_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last time this alert fired \u2014 used to prevent duplicate alerts"
+    },
+    "cooldown_minutes": {
+      "type": "number",
+      "default": 60,
+      "description": "Minimum minutes between repeated alerts for the same rule"
+    }
+  },
+  "required": [
+    "name",
+    "alert_type",
+    "threshold",
+    "notify_email"
+  ]
+}

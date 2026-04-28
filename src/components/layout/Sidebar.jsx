@@ -58,6 +58,7 @@ const DEFAULT_NAV_GROUPS = [
       { label: "Billing Engine", icon: FileText, path: "/billing" },
       { label: "Deploy Guide", icon: BookOpen, path: "/deploy-guide" },
       { label: "Notifications", icon: Bell, path: "/notifications" },
+      { label: "Alert Rules", icon: Bell, path: "/alert-rules" },
       { label: "Settings", icon: Settings, path: "/settings" },
       { label: "Tenants", icon: Users, path: "/tenants" },
       { label: "User Mgmt", icon: Shield, path: "/users" },
