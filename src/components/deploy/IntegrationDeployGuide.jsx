@@ -72,6 +72,177 @@ systemctl enable asterisk
 systemctl start asterisk
 asterisk -rx "core show version"`,
 
+  kannel_install: `#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════
+#  Net2app Kannel — Full Install Script
+#  Run as root: bash install_kannel.sh
+# ═══════════════════════════════════════════════════════════════════
+
+set -e
+
+echo "════════════════════════════════════════════"
+echo "  Net2app Kannel Installer"
+echo "════════════════════════════════════════════"
+
+# ── Step 1: Install Kannel ───────────────────────────────────────
+echo "[1/6] Installing Kannel..."
+apt-get update -y
+apt-get install -y kannel
+
+# ── Step 2: Create Directories ──────────────────────────────────
+echo "[2/6] Creating directories..."
+mkdir -p /etc/kannel
+mkdir -p /var/log/kannel
+chmod 755 /var/log/kannel
+
+# ── Step 3: Write Config ─────────────────────────────────────────
+echo "[3/6] Writing kannel.conf..."
+tee /etc/kannel/kannel.conf > /dev/null << 'KANNELEOF'
+# /etc/kannel/kannel.conf — Net2app Kannel
+
+# ── Core (bearerbox) ─────────────────────────────────────────────
+group = core
+admin-port = 13000
+admin-password = CHANGE_ADMIN_PASSWORD
+status-password = CHANGE_STATUS_PASSWORD
+smsbox-port = 13001
+log-file = "/var/log/kannel/bearerbox.log"
+log-level = 1
+box-allow-ip = 127.0.0.1
+access-log = "/var/log/kannel/access.log"
+unified-prefix = "+,00,011"
+
+# ── SMSbox ────────────────────────────────────────────────────────
+group = smsbox
+smsbox-id = "net2app_smsbox"
+bearerbox-host = 127.0.0.1
+bearerbox-port = 13001
+sendsms-port = 13013
+sendsms-interface = 127.0.0.1
+log-file = "/var/log/kannel/smsbox.log"
+log-level = 1
+global-sender = "NET2APP"
+
+# ── SMPP Upstream Supplier ───────────────────────────────────────
+group = smsc
+smsc = smpp
+smsc-id = "supplier_main"
+host = "smpp.yoursupplier.com"
+port = 2775
+smsc-username = "your_login"
+smsc-password = "your_pass"
+system-type = "SMPP"
+transceiver-mode = 1
+max-pending-submits = 20
+throughput = 200
+reconnect-delay = 10
+log-file = "/var/log/kannel/supplier_main.log"
+
+# ── HTTP Upstream Supplier ────────────────────────────────────────
+group = smsc
+smsc = http
+smsc-id = "supplier_http"
+system-type = "kannel"
+send-url = "https://api.yoursupplier.com/send"
+smsc-username = "api_user"
+smsc-password = "api_pass"
+throughput = 100
+KANNELEOF
+
+echo "Config written: $(wc -l < /etc/kannel/kannel.conf) lines"
+
+# ── Step 4: Create Systemd Services ─────────────────────────────
+echo "[4/6] Creating systemd services..."
+
+tee /etc/systemd/system/kannel-bearerbox.service > /dev/null << 'EOF'
+[Unit]
+Description=Kannel Bearerbox
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/bearerbox /etc/kannel/kannel.conf
+Restart=always
+RestartSec=5
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+tee /etc/systemd/system/kannel-smsbox.service > /dev/null << 'EOF'
+[Unit]
+Description=Kannel Smsbox
+After=network.target kannel-bearerbox.service
+Requires=kannel-bearerbox.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/sbin/smsbox /etc/kannel/kannel.conf
+Restart=always
+RestartSec=5
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ── Step 5: Enable and Start Services ───────────────────────────
+echo "[5/6] Enabling and starting services..."
+systemctl daemon-reload
+systemctl enable kannel-bearerbox kannel-smsbox
+
+# Kill any old running instances
+pkill -f bearerbox 2>/dev/null || true
+pkill -f smsbox 2>/dev/null || true
+sleep 2
+
+systemctl start kannel-bearerbox
+sleep 4
+systemctl start kannel-smsbox
+sleep 2
+
+# ── Step 6: Verify ──────────────────────────────────────────────
+echo "[6/6] Verifying installation..."
+
+echo ""
+echo "── Process Check ────────────────────────────"
+ps aux | grep -E "bearerbox|smsbox" | grep -v grep
+
+echo ""
+echo "── Port Check ───────────────────────────────"
+ss -tlnp | grep -E "13000|13001|13013"
+
+echo ""
+echo "── Service Status ───────────────────────────"
+systemctl is-active kannel-bearerbox && echo "bearerbox: RUNNING ✅" || echo "bearerbox: FAILED ❌"
+systemctl is-active kannel-smsbox    && echo "smsbox:    RUNNING ✅" || echo "smsbox:    FAILED ❌"
+
+echo ""
+echo "── Admin Status ─────────────────────────────"
+curl -s "http://localhost:13000/status?password=CHANGE_ADMIN_PASSWORD" || echo "Admin not reachable yet"
+
+echo ""
+echo "════════════════════════════════════════════"
+echo "  Installation Complete!"
+echo ""
+echo "  Useful Commands:"
+echo "  systemctl status kannel-bearerbox"
+echo "  systemctl status kannel-smsbox"
+echo "  tail -f /var/log/kannel/bearerbox.log"
+echo "  tail -f /var/log/kannel/smsbox.log"
+echo ""
+echo "  ⚠️  Remember to update /etc/kannel/kannel.conf:"
+echo "  • admin-password / status-password"
+echo "  • SMPP supplier host/username/password"
+echo "  • HTTP supplier send-url / credentials"
+echo "════════════════════════════════════════════"`,
+
   kannel_core: `# /etc/kannel/kannel.conf
 # ═══════════════════════════════════════════════════════════════════
 #  Net2app Kannel — bearerbox + smsbox configuration
@@ -87,20 +258,20 @@ group = core
 admin-port = 13000
 admin-password = CHANGE_ADMIN_PASSWORD
 status-password = CHANGE_STATUS_PASSWORD
+smsbox-port = 13001
 log-file = "/var/log/kannel/bearerbox.log"
 log-level = 1
 box-allow-ip = 127.0.0.1
 access-log = "/var/log/kannel/access.log"
 unified-prefix = "+,00,011"
-# Allow bearerbox to listen for incoming SMPP client binds
-# Each tenant gets a dedicated port (9096, 9097, ...)
+# Each tenant gets a dedicated SMPP server port (9096, 9097, ...)
 # Configured per-tenant below in smpp-server blocks
 
 # ── SMSbox ────────────────────────────────────────────────────────
 group = smsbox
 smsbox-id = "net2app_smsbox"
 bearerbox-host = 127.0.0.1
-bearerbox-port = 13000
+bearerbox-port = 13001
 sendsms-port = 13013
 sendsms-interface = 127.0.0.1
 log-file = "/var/log/kannel/smsbox.log"
@@ -127,9 +298,10 @@ log-file = "/var/log/kannel/supplier_main.log"
 group = smsc
 smsc = http
 smsc-id = "supplier_http"
-smsc-url = "https://api.yoursupplier.com/send"
-username = "api_user"
-password = "api_pass"
+system-type = "kannel"
+send-url = "https://api.yoursupplier.com/send"
+smsc-username = "api_user"
+smsc-password = "api_pass"
 throughput = 100`,
 
   kannel_tenants: `# ════════════════════════════════════════════════════════════════
@@ -1107,7 +1279,8 @@ export default function IntegrationDeployGuide() {
         <TabsList className="flex-wrap h-auto gap-1 bg-muted/50 p-1">
           <TabsTrigger value="overview" className="gap-1 text-xs"><Server className="w-3 h-3" />Overview</TabsTrigger>
           <TabsTrigger value="system" className="gap-1 text-xs"><Settings className="w-3 h-3" />System</TabsTrigger>
-          <TabsTrigger value="kannel" className="gap-1 text-xs"><Wifi className="w-3 h-3" />Kannel</TabsTrigger>
+          <TabsTrigger value="kannel_install" className="gap-1 text-xs"><Wifi className="w-3 h-3" />Kannel Install</TabsTrigger>
+          <TabsTrigger value="kannel" className="gap-1 text-xs"><Wifi className="w-3 h-3" />Kannel Config</TabsTrigger>
           <TabsTrigger value="simbox" className="gap-1 text-xs"><Wifi className="w-3 h-3" />SIM Box</TabsTrigger>
           <TabsTrigger value="database" className="gap-1 text-xs"><Database className="w-3 h-3" />Database</TabsTrigger>
           <TabsTrigger value="tenant_db" className="gap-1 text-xs"><Users className="w-3 h-3" />Tenant DB</TabsTrigger>
@@ -1146,6 +1319,21 @@ export default function IntegrationDeployGuide() {
           </InfoBox>
         </TabsContent>
 
+        {/* Kannel Install Script */}
+        <TabsContent value="kannel_install" className="mt-4 space-y-4">
+          <InfoBox color="green">
+            <p className="font-bold">One-shot Kannel install script — run as root on Debian 12</p>
+            <p>Installs Kannel, writes <code>/etc/kannel/kannel.conf</code>, creates dedicated systemd services for bearerbox + smsbox, and verifies everything is running. bearerbox listens on port 13001 (internal), smsbox HTTP on 13013, admin on 13000.</p>
+          </InfoBox>
+          <CodeBlock label="Save as install_kannel.sh → chmod +x install_kannel.sh → bash install_kannel.sh" code={SCRIPTS.kannel_install} color="text-green-400" />
+          <InfoBox color="orange">
+            <p className="font-bold">After running the script:</p>
+            <p>1. Edit <code>/etc/kannel/kannel.conf</code> — update <strong>admin-password</strong>, <strong>status-password</strong>, and supplier credentials</p>
+            <p>2. Reload: <code>systemctl restart kannel-bearerbox kannel-smsbox</code></p>
+            <p>3. Add tenant SMPP server blocks (see Kannel Config tab) and reload with: <code>kill -HUP $(pidof bearerbox)</code></p>
+          </InfoBox>
+        </TabsContent>
+
         {/* Kannel */}
         <TabsContent value="kannel" className="mt-4 space-y-4">
           <InfoBox color="blue">
@@ -1157,20 +1345,23 @@ export default function IntegrationDeployGuide() {
           <CodeBlock label="Kannel Master Config — /etc/kannel/kannel.conf" code={SCRIPTS.kannel_core} />
           <CodeBlock label="Per-Tenant SMPP Server Blocks (append to kannel.conf)" code={SCRIPTS.kannel_tenants} color="text-yellow-300" />
           <CodeBlock label="HTTP Submit API + Tenant Nginx Proxy" code={SCRIPTS.kannel_http} color="text-cyan-300" />
-          <CodeBlock label="Start/Reload Kannel" code={`# Install
-apt-get install -y kannel kannel-extras
-mkdir -p /var/log/kannel && chown kannel:kannel /var/log/kannel
+          <CodeBlock label="Start / Reload / Manage Kannel (after install script)" code={`# Use the dedicated systemd services created by install_kannel.sh:
+systemctl start   kannel-bearerbox kannel-smsbox
+systemctl stop    kannel-bearerbox kannel-smsbox
+systemctl restart kannel-bearerbox kannel-smsbox
+systemctl status  kannel-bearerbox
+systemctl status  kannel-smsbox
 
-# Start
-systemctl enable kannel && systemctl start kannel
-# OR start manually:
-/usr/sbin/bearerbox /etc/kannel/kannel.conf &
-/usr/sbin/smsbox /etc/kannel/kannel.conf &
+# Reload config WITHOUT downtime (SIGHUP to bearerbox):
+kill -HUP $(pidof bearerbox)
 
-# Reload config without downtime (SIGHUP):
-killall -HUP bearerbox
+# View live logs:
+journalctl -fu kannel-bearerbox
+journalctl -fu kannel-smsbox
+tail -f /var/log/kannel/bearerbox.log
+tail -f /var/log/kannel/smsbox.log
 
-# Check status (web):
+# Check admin status:
 curl "http://localhost:13000/status?password=CHANGE_ADMIN_PASSWORD"
 
 # Test send via smsbox:
