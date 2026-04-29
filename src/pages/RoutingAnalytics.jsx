@@ -10,7 +10,8 @@ import {
 } from "recharts";
 import { TrendingDown, Activity, CheckCircle2, Zap } from "lucide-react";
 import { RULE_TYPE_META } from "@/lib/routingEngine";
-import { format, subDays, startOfDay } from "date-fns";
+import { format, subDays } from "date-fns";
+import SupplierHealthPanel from "@/components/routing/SupplierHealthPanel";
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#f97316"];
 
@@ -218,6 +219,9 @@ export default function RoutingAnalytics() {
           )}
         </CardContent>
       </Card>
+
+      {/* Supplier Health Monitor */}
+      <SupplierHealthPanel />
 
       {/* Rule hit leaderboard */}
       {rules.some(r => r.hit_count > 0) && (

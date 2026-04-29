@@ -1,0 +1,65 @@
+{
+  "name": "SupplierHealth",
+  "type": "object",
+  "properties": {
+    "supplier_id": {
+      "type": "string"
+    },
+    "supplier_name": {
+      "type": "string"
+    },
+    "latency_ms": {
+      "type": "number",
+      "description": "Average response latency in milliseconds (from recent SMS log timestamps)"
+    },
+    "error_rate": {
+      "type": "number",
+      "description": "Error rate as a percentage (0-100)"
+    },
+    "success_rate": {
+      "type": "number",
+      "description": "Success rate as a percentage (0-100)"
+    },
+    "total_checked": {
+      "type": "number",
+      "default": 0
+    },
+    "total_failed": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "healthy",
+        "degraded",
+        "critical",
+        "unknown"
+      ],
+      "default": "unknown"
+    },
+    "auto_disabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Was this supplier auto-disabled by the health monitor?"
+    },
+    "last_checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "threshold_error_rate": {
+      "type": "number",
+      "default": 30,
+      "description": "Auto-disable if error rate exceeds this %"
+    },
+    "threshold_min_messages": {
+      "type": "number",
+      "default": 10,
+      "description": "Minimum messages before auto-disable kicks in"
+    }
+  },
+  "required": [
+    "supplier_id",
+    "supplier_name"
+  ]
+}
