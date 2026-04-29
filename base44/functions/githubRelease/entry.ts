@@ -50,5 +50,21 @@ Deno.serve(async (req) => {
     return Response.json({ tags: data });
   }
 
+  // Create repository
+  if (action === "create_repo") {
+    const res = await fetch(`${API_BASE}/user/repos`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: name,
+        description: body || "",
+        private: false,
+        auto_init: true,
+      }),
+    });
+    const data = await res.json();
+    return Response.json({ repo: data, status: res.status });
+  }
+
   return Response.json({ error: "Unknown action" }, { status: 400 });
 });
