@@ -42,6 +42,7 @@ import TenantDashboard from './pages/TenantDashboard';
 import AlertRules from './pages/AlertRules';
 import RoutingRules from './pages/RoutingRules';
 import RoutingAnalytics from './pages/RoutingAnalytics';
+import GithubReleases from './pages/GithubReleases';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -101,6 +102,7 @@ const AuthenticatedApp = () => {
         <Route path="/alert-rules" element={<AlertRules />} />
         <Route path="/routing-rules" element={<RoutingRules />} />
         <Route path="/routing-analytics" element={<RoutingAnalytics />} />
+        <Route path="/github-releases" element={<GithubReleases />} />
       </Route>
       <Route path="/portal" element={<CustomerPortal />} />
       <Route path="*" element={<PageNotFound />} />
