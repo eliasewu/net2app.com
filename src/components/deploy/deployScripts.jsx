@@ -718,7 +718,7 @@ echo "Net2app master database created."`,
 # Example:     bash fix-tenant.sh tenant_acme acme_db Telco1988
 # ============================================
 
-if [ "$EUID" -ne 0 ]; then exec sudo bash "$0" "$@"; fi
+if [ "\$EUID" -ne 0 ]; then exec sudo bash "\$0" "\$@"; fi
 
 ROOT_PASS="Telco1988"
 GLOBAL_DB="net2app"
@@ -1382,7 +1382,7 @@ echo "============================================"`,
 # Run as root: bash fix-asterisk-dirs.sh
 # ============================================
 
-if [ "$EUID" -ne 0 ]; then exec sudo bash "$0" "$@"; fi
+if [ "\$EUID" -ne 0 ]; then exec sudo bash "\$0" "\$@"; fi
 
 GREEN='\\033[0;32m'; RED='\\033[0;31m'; YELLOW='\\033[1;33m'; NC='\\033[0m'
 ok()   { echo -e "\${GREEN}[OK]\${NC} \$1"; }
