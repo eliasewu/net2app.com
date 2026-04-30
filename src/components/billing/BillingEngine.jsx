@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Send, FileText, RefreshCw, Loader2 } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Send, FileText, RefreshCw, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -146,6 +146,29 @@ export default function BillingEngine() {
     toast.success(`Invoice sent to ${client.email}`);
   };
 
+  const exportMonthlyCsv = () => {
+    const now = new Date();
+    const monthLabel = now.toISOString().slice(0, 7); // YYYY-MM
+    const rows = [
+      ['Client Name', 'Email', 'Billing Type', 'Total SMS', 'Billable SMS', 'Delivered', 'Failed', 'Revenue', 'Cost', 'Margin', 'Balance', 'Credit Limit', 'Currency'],
+      ...clientStats.map(c => [
+        c.name, c.email || '', c.billing_type || 'submit',
+        c.totalLogs, c.billable, c.delivered, c.failed,
+        c.revenue.toFixed(4), c.cost.toFixed(4), c.margin.toFixed(4),
+        (c.balance || 0).toFixed(2), c.credit_limit || 0, c.currency || 'USD'
+      ])
+    ];
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `monthly-usage-${monthLabel}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${clientStats.length} clients to CSV`);
+  };
+
   const adjustBalance = (client, amount) => {
     updateClientMut.mutate({ id: client.id, data: { balance: (client.balance || 0) + amount } });
   };
@@ -170,11 +193,16 @@ export default function BillingEngine() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="overview">Client Billing</TabsTrigger>
-          <TabsTrigger value="suppliers">Supplier Costs</TabsTrigger>
-          <TabsTrigger value="invoices">Invoices</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <TabsList className="flex-wrap h-auto gap-1">
+            <TabsTrigger value="overview">Client Billing</TabsTrigger>
+            <TabsTrigger value="suppliers">Supplier Costs</TabsTrigger>
+            <TabsTrigger value="invoices">Invoices</TabsTrigger>
+          </TabsList>
+          <Button size="sm" variant="outline" onClick={exportMonthlyCsv} className="gap-1.5 text-xs">
+            <Download className="w-3.5 h-3.5" />Export Monthly CSV
+          </Button>
+        </div>
 
         <TabsContent value="overview" className="mt-4">
           <Card>

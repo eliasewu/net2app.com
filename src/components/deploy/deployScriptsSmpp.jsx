@@ -151,12 +151,10 @@ app.post('/api/smpp/user/add', async (req, res) => {
   const { client_id, smpp_username, smpp_password, smpp_port } = req.body;
   try {
     await pool.execute(
-      `INSERT INTO smpp_users (client_id,smpp_username,smpp_password,smpp_port,status)
-       VALUES (?,?,?,?,'active')
-       ON DUPLICATE KEY UPDATE smpp_password=?,smpp_port=?,status='active',updated_at=NOW()`,
+       'INSERT INTO smpp_users (client_id,smpp_username,smpp_password,smpp_port,status) VALUES (?,?,?,?,\'active\') ON DUPLICATE KEY UPDATE smpp_password=?,smpp_port=?,status=\'active\',updated_at=NOW()',
       [client_id, smpp_username, smpp_password, smpp_port || 9096, smpp_password, smpp_port || 9096]
     );
-    res.json({ ok: true, message: `SMPP user ${smpp_username}:${smpp_port} provisioned` });
+    res.json({ ok: true, message: 'SMPP user ' + smpp_username + ':' + smpp_port + ' provisioned' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -164,7 +162,7 @@ app.post('/api/smpp/user/add', async (req, res) => {
 app.post('/api/smpp/user/remove', async (req, res) => {
   const { client_id, smpp_username } = req.body;
   try {
-    await pool.execute(`UPDATE smpp_users SET status='inactive' WHERE client_id=? AND smpp_username=?`, [client_id, smpp_username]);
+    await pool.execute('UPDATE smpp_users SET status=\'inactive\' WHERE client_id=? AND smpp_username=?', [client_id, smpp_username]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -178,11 +176,7 @@ app.get('/api/billing/dashboard', async (req, res) => {
   } catch {
     try {
       const [rows] = await pool.execute(
-        `SELECT COUNT(*) as total_sms,
-          SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed,
-          IFNULL(SUM(cost),0) as total_cost, IFNULL(SUM(sell_rate),0) as total_revenue
-         FROM sms_log WHERE tenant_id=? AND DATE(submit_time)=CURDATE()`, [tenant_id]
+        'SELECT COUNT(*) as total_sms, SUM(CASE WHEN status=\'delivered\' THEN 1 ELSE 0 END) as delivered, SUM(CASE WHEN status=\'failed\' THEN 1 ELSE 0 END) as failed, IFNULL(SUM(cost),0) as total_cost, IFNULL(SUM(sell_rate),0) as total_revenue FROM sms_log WHERE tenant_id=? AND DATE(submit_time)=CURDATE()', [tenant_id]
       );
       res.json({ ok: true, data: rows });
     } catch (e2) { res.status(500).json({ error: e2.message }); }
