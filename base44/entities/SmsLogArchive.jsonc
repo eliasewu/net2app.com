@@ -1,0 +1,98 @@
+{
+  "name": "SmsLogArchive",
+  "type": "object",
+  "properties": {
+    "archive_month": {
+      "type": "string",
+      "description": "YYYY-MM \u2014 the month this batch belongs to"
+    },
+    "message_id": {
+      "type": "string"
+    },
+    "client_id": {
+      "type": "string"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "supplier_id": {
+      "type": "string"
+    },
+    "supplier_name": {
+      "type": "string"
+    },
+    "route_id": {
+      "type": "string"
+    },
+    "sender_id": {
+      "type": "string"
+    },
+    "destination": {
+      "type": "string"
+    },
+    "mcc": {
+      "type": "string"
+    },
+    "mnc": {
+      "type": "string"
+    },
+    "country": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "sent",
+        "delivered",
+        "failed",
+        "rejected",
+        "blocked"
+      ]
+    },
+    "fail_reason": {
+      "type": "string"
+    },
+    "dest_message_id": {
+      "type": "string"
+    },
+    "submit_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "delivery_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sms_type": {
+      "type": "string"
+    },
+    "parts": {
+      "type": "number",
+      "default": 1
+    },
+    "cost": {
+      "type": "number",
+      "default": 0
+    },
+    "sell_rate": {
+      "type": "number",
+      "default": 0
+    },
+    "original_created_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "archive_month",
+    "client_id",
+    "destination"
+  ]
+}

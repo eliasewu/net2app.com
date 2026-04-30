@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import { TrendingDown, Activity, CheckCircle2, Zap } from "lucide-react";
 import ExportMetricsButton from "@/components/dashboard/ExportMetricsButton";
+import SupplierCompare from "@/components/suppliers/SupplierCompare";
 import { RULE_TYPE_META } from "@/lib/routingEngine";
 import { format, subDays } from "date-fns";
 import SupplierHealthPanel from "@/components/routing/SupplierHealthPanel";
@@ -222,6 +223,9 @@ export default function RoutingAnalytics() {
           )}
         </CardContent>
       </Card>
+
+      {/* Supplier Comparison Tool */}
+      <SupplierCompare />
 
       {/* Supplier Health Monitor */}
       <SupplierHealthPanel />
