@@ -1,0 +1,987 @@
+export const SCRIPTS = {
+  system: `#!/bin/bash
+# Net2app – Debian 12 Full Stack Setup
+# Run as root: bash setup.sh
+
+apt-get update && apt-get install -y \\
+    build-essential git curl wget vim \\
+    libssl-dev libncurses5-dev libxml2-dev libsqlite3-dev \\
+    uuid-dev libjansson-dev libedit-dev \\
+    mariadb-server mariadb-client \\
+    kannel kannel-extras \\
+    ufw fail2ban net-tools tcpdump nmap \\
+    php8.2 php8.2-mysql php8.2-curl \\
+    nginx supervisor
+
+systemctl enable mariadb kannel nginx
+systemctl start mariadb kannel nginx
+echo "✅ System packages installed successfully"`,
+
+  asterisk: `#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════
+#  Asterisk Full Install Script — Run as root: bash install_asterisk.sh
+# ═══════════════════════════════════════════════════════════════════
+set -e
+echo "════════════════════════════════════════════"
+echo "  Asterisk Installer"
+echo "════════════════════════════════════════════"
+
+echo "[1/7] Updating system..."
+apt-get update -y && apt-get upgrade -y
+
+echo "[2/7] Installing dependencies..."
+apt-get install -y \\
+    build-essential wget curl git \\
+    libssl-dev libncurses5-dev libnewt-dev \\
+    libxml2-dev libsqlite3-dev uuid-dev \\
+    libjansson-dev libedit-dev libsrtp2-dev \\
+    libgsm1-dev mpg123 sox \\
+    unixodbc unixodbc-dev odbcinst subversion
+
+echo "[3/7] Downloading Asterisk..."
+cd /usr/src
+wget -q https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.tar.gz
+tar -xzf asterisk-20-current.tar.gz
+cd asterisk-20*/
+
+echo "[4/7] Installing Asterisk prerequisites..."
+contrib/scripts/install_prereq install
+
+echo "[5/7] Configuring and compiling Asterisk..."
+./configure --with-jansson-bundled
+make menuselect.makeopts
+menuselect/menuselect \\
+    --enable chan_sip \\
+    --enable chan_pjsip \\
+    --enable res_pjsip \\
+    --enable app_voicemail \\
+    --enable codec_gsm \\
+    --enable format_mp3 \\
+    menuselect.makeopts
+make -j$(nproc)
+make install && make samples && make config
+
+echo "[6/7] Setting up configuration..."
+id asterisk 2>/dev/null || useradd -r -d /var/lib/asterisk -s /sbin/nologin asterisk
+chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk \\
+    /var/log/asterisk /var/spool/asterisk /usr/lib/asterisk
+
+tee /etc/asterisk/manager.conf > /dev/null << 'CONF'
+[general]
+enabled = yes
+port = 5038
+bindaddr = 127.0.0.1
+
+[admin]
+secret = CHANGE_AMI_PASSWORD
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.0
+read = all
+write = all
+CONF
+
+chown -R asterisk:asterisk /etc/asterisk
+
+echo "[7/7] Starting Asterisk..."
+systemctl daemon-reload
+systemctl enable asterisk
+systemctl start asterisk
+sleep 3
+
+systemctl is-active asterisk && echo "Asterisk: RUNNING ✅" || echo "Asterisk: FAILED ❌"
+ss -tlnp | grep -E "5060|5038"
+asterisk -V
+
+echo "════════════════════════════════════════════"
+echo "  Installation Complete!"
+echo "  asterisk -rvvv              # Connect to CLI"
+echo "  ⚠️  Update sip.conf, manager.conf, extensions.conf"
+echo "════════════════════════════════════════════"`,
+
+  kannel_install: `#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════
+#  Net2app Kannel — Full Install Script
+#  Run as root: bash install_kannel.sh
+# ═══════════════════════════════════════════════════════════════════
+set -e
+echo "════════════════════════════════════════════"
+echo "  Net2app Kannel Installer"
+echo "════════════════════════════════════════════"
+
+echo "[1/6] Installing Kannel..."
+apt-get update -y && apt-get install -y kannel
+
+echo "[2/6] Creating directories..."
+mkdir -p /etc/kannel /var/log/kannel
+chmod 755 /var/log/kannel
+
+echo "[3/6] Writing kannel.conf..."
+tee /etc/kannel/kannel.conf > /dev/null << 'KANNELEOF'
+group = core
+admin-port = 13000
+admin-password = CHANGE_ADMIN_PASSWORD
+status-password = CHANGE_STATUS_PASSWORD
+smsbox-port = 13001
+log-file = "/var/log/kannel/bearerbox.log"
+log-level = 1
+box-allow-ip = 127.0.0.1
+access-log = "/var/log/kannel/access.log"
+unified-prefix = "+,00,011"
+
+group = smsbox
+smsbox-id = "net2app_smsbox"
+bearerbox-host = 127.0.0.1
+bearerbox-port = 13001
+sendsms-port = 13013
+sendsms-interface = 127.0.0.1
+log-file = "/var/log/kannel/smsbox.log"
+log-level = 1
+global-sender = "NET2APP"
+
+group = smsc
+smsc = smpp
+smsc-id = "supplier_main"
+host = "smpp.yoursupplier.com"
+port = 2775
+smsc-username = "your_login"
+smsc-password = "your_pass"
+system-type = "SMPP"
+transceiver-mode = 1
+max-pending-submits = 20
+throughput = 200
+reconnect-delay = 10
+log-file = "/var/log/kannel/supplier_main.log"
+KANNELEOF
+
+echo "[4/6] Creating systemd services..."
+tee /etc/systemd/system/kannel-bearerbox.service > /dev/null << 'EOF'
+[Unit]
+Description=Kannel Bearerbox
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/sbin/bearerbox /etc/kannel/kannel.conf
+Restart=always
+RestartSec=5
+User=root
+[Install]
+WantedBy=multi-user.target
+EOF
+
+tee /etc/systemd/system/kannel-smsbox.service > /dev/null << 'EOF'
+[Unit]
+Description=Kannel Smsbox
+After=network.target kannel-bearerbox.service
+Requires=kannel-bearerbox.service
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/sbin/smsbox /etc/kannel/kannel.conf
+Restart=always
+RestartSec=5
+User=root
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "[5/6] Starting services..."
+systemctl daemon-reload
+systemctl enable kannel-bearerbox kannel-smsbox
+pkill -f bearerbox 2>/dev/null || true
+pkill -f smsbox 2>/dev/null || true
+sleep 2
+systemctl start kannel-bearerbox; sleep 4
+systemctl start kannel-smsbox; sleep 2
+
+echo "[6/6] Verifying..."
+systemctl is-active kannel-bearerbox && echo "bearerbox: RUNNING ✅" || echo "bearerbox: FAILED ❌"
+systemctl is-active kannel-smsbox    && echo "smsbox:    RUNNING ✅" || echo "smsbox:    FAILED ❌"
+curl -s "http://localhost:13000/status?password=CHANGE_ADMIN_PASSWORD" || echo "Admin not reachable yet"
+
+echo "════════════════════════════════════════════"
+echo "  Installation Complete!"
+echo "  ⚠️  Update /etc/kannel/kannel.conf passwords + supplier credentials"
+echo "════════════════════════════════════════════"`,
+
+  kannel_core: `# /etc/kannel/kannel.conf — Net2app Kannel
+# ═══════════════════════════════════════════════════════════════════
+#  Kannel acts as BOTH:
+#    • SMPP SERVER  — tenants/clients connect TO us via SMPP bind
+#    • SMPP CLIENT  — we connect OUT to upstream SMPP suppliers
+#    • HTTP SERVER  — accept HTTP submit from tenant panels
+#    • HTTP CLIENT  — forward to HTTP API suppliers
+# ═══════════════════════════════════════════════════════════════════
+
+group = core
+admin-port = 13000
+admin-password = CHANGE_ADMIN_PASSWORD
+status-password = CHANGE_STATUS_PASSWORD
+smsbox-port = 13001
+log-file = "/var/log/kannel/bearerbox.log"
+log-level = 1
+box-allow-ip = 127.0.0.1
+access-log = "/var/log/kannel/access.log"
+unified-prefix = "+,00,011"
+
+group = smsbox
+smsbox-id = "net2app_smsbox"
+bearerbox-host = 127.0.0.1
+bearerbox-port = 13001
+sendsms-port = 13013
+sendsms-interface = 127.0.0.1
+log-file = "/var/log/kannel/smsbox.log"
+log-level = 1
+global-sender = "NET2APP"
+max-msgs-per-second = 500
+
+group = smsc
+smsc = smpp
+smsc-id = "supplier_main"
+host = "smpp.yoursupplier.com"
+port = 2775
+smsc-username = "your_login"
+smsc-password = "your_pass"
+system-type = "SMPP"
+transceiver-mode = 1
+max-pending-submits = 20
+throughput = 200
+reconnect-delay = 10
+log-file = "/var/log/kannel/supplier_main.log"
+
+group = smsc
+smsc = http
+smsc-id = "supplier_http"
+system-type = "kannel"
+send-url = "https://api.yoursupplier.com/send"
+smsc-username = "api_user"
+smsc-password = "api_pass"
+throughput = 100`,
+
+  kannel_tenants: `# ════════════════════════════════════════════════════════════════
+#  TENANT SMPP SERVER BLOCKS — Clients connect TO these ports
+#  Add this section for each tenant created in Net2app dashboard
+# ════════════════════════════════════════════════════════════════
+
+group = smpp-server
+smpp-server-id = tenant1_acme
+port = 9096
+system-id = acme_user
+password = SecurePass123!
+system-type = ""
+log-file = "/var/log/kannel/tenant1_acme_smpp.log"
+log-level = 1
+
+group = smpp-server
+smpp-server-id = tenant2_xyz
+port = 9097
+system-id = xyz_user
+password = AnotherPass!
+system-type = ""
+log-file = "/var/log/kannel/tenant2_xyz_smpp.log"
+log-level = 1
+
+# After creating tenants: copy auto-generated blocks from Tenant Management → Kannel Config tab
+# Then reload: kill -HUP $(pidof bearerbox)`,
+
+  kannel_http: `# HTTP Send API (smsbox sendsms endpoint)
+# POST http://SERVER_IP:13013/cgi-bin/sendsms
+# Params: username=smsgw  password=PASS  from=SENDER  to=880XXXXXXXX  text=Hello
+
+# Tenant HTTP ports (4000-6000) — nginx reverse proxy
+server {
+    listen 4000;
+    location / {
+        proxy_pass http://127.0.0.1:13013;
+        proxy_set_header Host $host;
+    }
+}
+
+# DLR Callback (Kannel → Net2app backend)
+# In kannel.conf smsbox group, add:
+# dlr-url = "http://127.0.0.1:8080/dlr?msgid=%i&status=%d&to=%p"`,
+
+  bearerbox_simbox: `# SIM Box / BearBox / GoIP Integration
+# Each SIM card appears as an SMSC in Kannel bearerbox.
+
+# Option A: AT Modem (serial/USB SIM box)
+group = smsc
+smsc = at
+smsc-id = "simbox_slot1"
+device = /dev/ttyUSB0
+speed = 115200
+sms-center = "+8801XXXXXXXXX"
+throughput = 3
+
+# Option B: SMPP SIM box (GoIP/BearBox sends SMPP to bearerbox)
+group = smsc
+smsc = smpp
+smsc-id = "simbox_goip1"
+host = "192.168.1.200"
+port = 7777
+smsc-username = "goip_user"
+smsc-password = "goip_pass"
+transceiver-mode = 1
+throughput = 10
+
+# Reload: killall -HUP bearerbox`,
+
+  mariadb_master: `#!/bin/bash
+# MariaDB — Master Database Setup
+mysql -u root << 'EOF'
+CREATE DATABASE IF NOT EXISTS net2app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'net2app'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD_CHANGE_ME';
+GRANT ALL PRIVILEGES ON net2app.* TO 'net2app'@'localhost';
+USE net2app;
+
+CREATE TABLE IF NOT EXISTS clients (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  name VARCHAR(128), email VARCHAR(128),
+  smpp_ip VARCHAR(64), smpp_port INT, smpp_username VARCHAR(64), smpp_password VARCHAR(128),
+  connection_type ENUM('SMPP','HTTP') DEFAULT 'SMPP',
+  status ENUM('active','inactive','blocked') DEFAULT 'active',
+  balance DECIMAL(12,4) DEFAULT 0, currency VARCHAR(8) DEFAULT 'USD',
+  billing_type ENUM('send','submit','delivery') DEFAULT 'submit',
+  force_dlr TINYINT(1) DEFAULT 0, force_dlr_timeout INT DEFAULT 30,
+  created_at DATETIME DEFAULT NOW(),
+  INDEX(tenant_id), INDEX(status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  name VARCHAR(128), category ENUM('sms','voice_otp','whatsapp','telegram','device','android') DEFAULT 'sms',
+  provider_type VARCHAR(128), connection_type ENUM('HTTP','SMPP','SIP','SDK','DEVICE','ANDROID') DEFAULT 'HTTP',
+  http_url TEXT, http_method ENUM('GET','POST') DEFAULT 'POST', http_params TEXT,
+  api_key VARCHAR(256), api_secret VARCHAR(256), account_sid VARCHAR(128), auth_token VARCHAR(256), dlr_url TEXT,
+  smpp_ip VARCHAR(64), smpp_port INT DEFAULT 2775, smpp_username VARCHAR(64), smpp_password VARCHAR(128),
+  sip_server VARCHAR(128), sip_port INT DEFAULT 5060, sip_username VARCHAR(64), sip_password VARCHAR(128),
+  device_channel ENUM('whatsapp','telegram','imo','android') DEFAULT NULL,
+  device_phone VARCHAR(32), device_session TEXT, device_status ENUM('pending','connected','disconnected','expired') DEFAULT 'pending', device_linked_at DATETIME,
+  android_webhook_url TEXT, android_device_id VARCHAR(128), android_api_token VARCHAR(256),
+  allowed_prefixes VARCHAR(512), allowed_mcc_mnc TEXT,
+  reroute_on_fail TINYINT(1) DEFAULT 1, reroute_supplier_id VARCHAR(64), reroute_supplier_name VARCHAR(128),
+  billing_type ENUM('send','submit','delivery') DEFAULT 'delivery',
+  total_sent BIGINT DEFAULT 0, total_delivered BIGINT DEFAULT 0, total_failed BIGINT DEFAULT 0, total_rerouted BIGINT DEFAULT 0,
+  otp_unicode_preset VARCHAR(128), otp_unicode_enabled TINYINT(1) DEFAULT 0,
+  status ENUM('active','inactive','blocked') DEFAULT 'active', priority INT DEFAULT 1, tps_limit INT DEFAULT 100,
+  contact_person VARCHAR(128), email VARCHAR(128), phone VARCHAR(32), notes TEXT,
+  created_at DATETIME DEFAULT NOW(),
+  INDEX(tenant_id), INDEX(category), INDEX(connection_type)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS device_sessions (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  supplier_id VARCHAR(64), channel ENUM('whatsapp','telegram','imo') NOT NULL,
+  session_name VARCHAR(128), phone VARCHAR(32), qr_token VARCHAR(256), session_data TEXT,
+  status ENUM('pending','active','expired','disconnected') DEFAULT 'pending',
+  connected_at DATETIME, disconnected_at DATETIME, last_activity DATETIME, notes TEXT, created_at DATETIME DEFAULT NOW(),
+  INDEX(tenant_id, channel), INDEX(supplier_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS routes (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  name VARCHAR(128), client_id VARCHAR(64), client_name VARCHAR(128),
+  supplier_id VARCHAR(64), supplier_name VARCHAR(128),
+  backup_supplier_id VARCHAR(64), backup_supplier_name VARCHAR(128),
+  device_reroute_supplier_id VARCHAR(64), device_reroute_supplier_name VARCHAR(128),
+  device_reroute_to ENUM('smpp','http','voice_otp','none') DEFAULT 'smpp', reroute_on_device_fail TINYINT(1) DEFAULT 1,
+  mcc VARCHAR(8), mnc VARCHAR(8), country VARCHAR(64), network VARCHAR(128), prefix VARCHAR(32),
+  routing_mode ENUM('LCR','ASR','Priority','Round Robin') DEFAULT 'Priority',
+  status ENUM('active','inactive','blocked') DEFAULT 'active',
+  fail_count INT DEFAULT 0, auto_block_threshold INT DEFAULT 10, is_auto_blocked TINYINT(1) DEFAULT 0,
+  otp_unicode_preset_id VARCHAR(64), content_template_id VARCHAR(64),
+  INDEX(tenant_id), INDEX(mcc, mnc), INDEX(supplier_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS rates (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  type ENUM('client','supplier','voice') NOT NULL,
+  entity_id VARCHAR(64), entity_name VARCHAR(128),
+  mcc VARCHAR(8), mnc VARCHAR(8), country VARCHAR(64), network VARCHAR(128), prefix VARCHAR(32),
+  rate DECIMAL(12,6) DEFAULT 0, currency VARCHAR(8) DEFAULT 'USD',
+  status ENUM('active','inactive','scheduled') DEFAULT 'active',
+  effective_from DATETIME, effective_until DATETIME, version INT DEFAULT 1,
+  INDEX(tenant_id, type, entity_id, mcc, mnc)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sms_log (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  message_id VARCHAR(64), client_id VARCHAR(64), client_name VARCHAR(128),
+  supplier_id VARCHAR(64), supplier_name VARCHAR(128),
+  sender_id VARCHAR(32), destination VARCHAR(32),
+  mcc VARCHAR(8), mnc VARCHAR(8), country VARCHAR(64), network VARCHAR(128),
+  content TEXT, status ENUM('pending','sent','delivered','failed','rejected','blocked') DEFAULT 'pending',
+  fail_reason VARCHAR(256), dest_msg_id VARCHAR(64),
+  parts TINYINT DEFAULT 1, cost DECIMAL(12,6) DEFAULT 0, sell_rate DECIMAL(12,6) DEFAULT 0,
+  submit_time DATETIME DEFAULT NOW(), delivery_time DATETIME,
+  dlr_mode ENUM('real','fake_success') DEFAULT 'real',
+  INDEX(tenant_id), INDEX(destination), INDEX(client_id), INDEX(status), INDEX(submit_time)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS cdr (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id VARCHAR(64),
+  calldate DATETIME NOT NULL DEFAULT NOW(),
+  clid VARCHAR(80), src VARCHAR(80), dst VARCHAR(80), dcontext VARCHAR(80),
+  channel VARCHAR(80), dstchannel VARCHAR(80), lastapp VARCHAR(80), lastdata VARCHAR(80),
+  duration INT, billsec INT, disposition VARCHAR(45), amaflags INT,
+  accountcode VARCHAR(20), uniqueid VARCHAR(32) NOT NULL,
+  buy_rate DECIMAL(10,6) DEFAULT 0, sell_rate DECIMAL(10,6) DEFAULT 0, cost DECIMAL(12,6) DEFAULT 0,
+  INDEX(tenant_id), INDEX(calldate), INDEX(src), INDEX(dst)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS ip_access (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64),
+  ip_address VARCHAR(64), list_type ENUM('whitelist','blacklist','web_blacklist') DEFAULT 'whitelist',
+  entity_type ENUM('client','supplier','admin','global') DEFAULT 'global',
+  entity_id VARCHAR(64), is_active TINYINT(1) DEFAULT 1, hit_count INT DEFAULT 0, created_at DATETIME DEFAULT NOW(),
+  INDEX(tenant_id, ip_address)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  invoice_number VARCHAR(32), client_id VARCHAR(64), client_name VARCHAR(128),
+  period_start DATE, period_end DATE,
+  total_sms BIGINT DEFAULT 0, total_amount DECIMAL(14,4) DEFAULT 0,
+  currency VARCHAR(8) DEFAULT 'USD', status ENUM('draft','sent','paid','overdue','cancelled') DEFAULT 'draft',
+  breakdown JSON, created_at DATETIME DEFAULT NOW(),
+  INDEX(tenant_id, client_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS billing_summary (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  period DATE, total_sms BIGINT DEFAULT 0,
+  total_cost DECIMAL(14,4) DEFAULT 0, total_revenue DECIMAL(14,4) DEFAULT 0, margin DECIMAL(14,4) DEFAULT 0,
+  updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  INDEX(tenant_id, period)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS tenants (
+  id VARCHAR(64) PRIMARY KEY, name VARCHAR(128),
+  plan VARCHAR(64) DEFAULT 'basic', status ENUM('active','suspended','expired') DEFAULT 'active',
+  created_at DATETIME DEFAULT NOW()
+) ENGINE=InnoDB;
+
+FLUSH PRIVILEGES;
+EOF
+echo "Net2app master database created."`,
+
+  tenant_db: `#!/bin/bash
+# ============================================
+# Net2app — Tenant Deploy / Quick Fix Script
+# Run as root: sudo bash fix-tenant.sh <tenant_id> <db_name> <pass>
+# Example:     bash fix-tenant.sh tenant_acme acme_db Telco1988
+# ============================================
+
+if [ "$EUID" -ne 0 ]; then exec sudo bash "$0" "$@"; fi
+
+ROOT_PASS="Telco1988"
+GLOBAL_DB="net2app"
+GLOBAL_USER="net2app"
+GLOBAL_PASS="Telco1988"
+TENANT_ID="\${1:-tenant_acme}"
+TENANT_NAME="\${2:-acme_db}"
+TENANT_PASS="\${3:-Telco1988}"
+
+GREEN='\\033[0;32m'; RED='\\033[0;31m'; YELLOW='\\033[1;33m'; NC='\\033[0m'
+ok()   { echo -e "\${GREEN}[OK]\${NC} \$1"; }
+fail() { echo -e "\${RED}[FAIL]\${NC} \$1"; }
+
+MYSQL="mysql -u root -p\${ROOT_PASS}"
+
+echo ""
+echo "════════════════════════════════════════"
+echo "  Running as: \$(whoami)"
+echo "  Tenant ID:  \${TENANT_ID}"
+echo "  Database:   \${TENANT_NAME}"
+echo "════════════════════════════════════════"
+
+# ── Start MySQL ──────────────────────────────────────────────────
+echo ""; echo "── Starting MySQL ──"
+systemctl start mysql 2>/dev/null || service mysql start 2>/dev/null; sleep 2
+mysqladmin -u root -p"\${ROOT_PASS}" ping 2>/dev/null | grep -q "alive" && ok "MySQL running" || true
+
+# ── Check / Create Global DB ─────────────────────────────────────
+echo ""; echo "── Check Global DB ──"
+\$MYSQL -e "USE \${GLOBAL_DB}; SELECT 'OK';" 2>/dev/null && ok "Global DB '\${GLOBAL_DB}' OK" || {
+    fail "Global DB missing — creating..."
+    \$MYSQL 2>/dev/null <<EOF
+CREATE DATABASE IF NOT EXISTS \\\`\${GLOBAL_DB}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '\${GLOBAL_USER}'@'localhost' IDENTIFIED BY '\${GLOBAL_PASS}';
+GRANT ALL PRIVILEGES ON \\\`\${GLOBAL_DB}\\\`.* TO '\${GLOBAL_USER}'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+    ok "Global DB created — run setup-db.sh to create all tables!"
+}
+
+# ── Create Tenant DB & User ──────────────────────────────────────
+echo ""; echo "── Creating Tenant DB & User ──"
+\$MYSQL 2>/dev/null <<EOF
+CREATE DATABASE IF NOT EXISTS \\\`\${TENANT_NAME}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+DROP USER IF EXISTS '\${TENANT_ID}'@'localhost';
+DROP USER IF EXISTS '\${TENANT_ID}'@'127.0.0.1';
+CREATE USER '\${TENANT_ID}'@'localhost'  IDENTIFIED BY '\${TENANT_PASS}';
+CREATE USER '\${TENANT_ID}'@'127.0.0.1' IDENTIFIED BY '\${TENANT_PASS}';
+GRANT ALL PRIVILEGES ON \\\`\${TENANT_NAME}\\\`.* TO '\${TENANT_ID}'@'localhost';
+GRANT ALL PRIVILEGES ON \\\`\${TENANT_NAME}\\\`.* TO '\${TENANT_ID}'@'127.0.0.1';
+GRANT SELECT                       ON \${GLOBAL_DB}.clients         TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.suppliers       TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.routes          TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.rates           TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.sms_log         TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.cdr             TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.invoices        TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.billing_summary TO '\${TENANT_ID}'@'localhost';
+GRANT SELECT                       ON \${GLOBAL_DB}.device_sessions TO '\${TENANT_ID}'@'localhost';
+GRANT INSERT, UPDATE, DELETE ON \${GLOBAL_DB}.clients         TO '\${TENANT_ID}'@'localhost';
+GRANT INSERT, UPDATE, DELETE ON \${GLOBAL_DB}.suppliers       TO '\${TENANT_ID}'@'localhost';
+GRANT INSERT, UPDATE, DELETE ON \${GLOBAL_DB}.routes          TO '\${TENANT_ID}'@'localhost';
+GRANT INSERT, UPDATE, DELETE ON \${GLOBAL_DB}.rates           TO '\${TENANT_ID}'@'localhost';
+GRANT INSERT, UPDATE         ON \${GLOBAL_DB}.sms_log         TO '\${TENANT_ID}'@'localhost';
+GRANT INSERT, UPDATE         ON \${GLOBAL_DB}.device_sessions TO '\${TENANT_ID}'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+ok "Tenant DB '\${TENANT_NAME}' and user '\${TENANT_ID}' created"
+
+# ── Create Views ─────────────────────────────────────────────────
+echo ""; echo "── Creating Views ──"
+\$MYSQL "\${TENANT_NAME}" 2>/dev/null <<EOF
+CREATE OR REPLACE VIEW v_clients         AS SELECT * FROM \${GLOBAL_DB}.clients         WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_suppliers       AS SELECT * FROM \${GLOBAL_DB}.suppliers       WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_routes          AS SELECT * FROM \${GLOBAL_DB}.routes          WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_rates           AS SELECT * FROM \${GLOBAL_DB}.rates           WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_sms_log         AS SELECT * FROM \${GLOBAL_DB}.sms_log         WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_cdr             AS SELECT * FROM \${GLOBAL_DB}.cdr             WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_invoices        AS SELECT * FROM \${GLOBAL_DB}.invoices        WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_billing_summary AS SELECT * FROM \${GLOBAL_DB}.billing_summary WHERE tenant_id='\${TENANT_ID}';
+CREATE OR REPLACE VIEW v_device_sessions AS SELECT * FROM \${GLOBAL_DB}.device_sessions WHERE tenant_id='\${TENANT_ID}';
+
+CREATE OR REPLACE VIEW v_today_summary AS
+    SELECT COUNT(*) AS total_sms,
+           SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
+           SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed,
+           SUM(CASE WHEN status='pending'   THEN 1 ELSE 0 END) AS pending,
+           SUM(cost) AS total_cost, SUM(sell_rate) AS total_revenue,
+           ROUND(AVG(CASE WHEN status='delivered' THEN 1.0 ELSE 0 END)*100,2) AS dlr_pct
+    FROM \${GLOBAL_DB}.sms_log
+    WHERE tenant_id='\${TENANT_ID}' AND DATE(submit_time)=CURDATE();
+
+CREATE OR REPLACE VIEW v_supplier_stats AS
+    SELECT supplier_id, supplier_name, COUNT(*) AS total,
+           SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
+           SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed,
+           ROUND(AVG(CASE WHEN status='delivered' THEN 1.0 ELSE 0 END)*100,2) AS dlr_pct,
+           SUM(cost) AS total_cost
+    FROM \${GLOBAL_DB}.sms_log WHERE tenant_id='\${TENANT_ID}'
+    GROUP BY supplier_id, supplier_name;
+EOF
+ok "Views created"
+
+# ── Create Local Tables ──────────────────────────────────────────
+echo ""; echo "── Creating Local Tables ──"
+\$MYSQL "\${TENANT_NAME}" 2>/dev/null <<'EOF'
+CREATE TABLE IF NOT EXISTS tenant_settings (
+  id INT NOT NULL AUTO_INCREMENT, setting_key VARCHAR(100) NOT NULL, setting_value TEXT, description VARCHAR(256),
+  created_at DATETIME DEFAULT NOW(), updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  PRIMARY KEY (id), UNIQUE KEY uk_key (setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  id INT NOT NULL AUTO_INCREMENT, key_name VARCHAR(100) NOT NULL, api_key VARCHAR(255) NOT NULL,
+  api_secret VARCHAR(255), permissions JSON, is_active TINYINT(1) DEFAULT 1, last_used DATETIME,
+  created_at DATETIME DEFAULT NOW(), expires_at DATETIME DEFAULT NULL,
+  PRIMARY KEY (id), UNIQUE KEY uk_key (api_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS wallet (
+  id INT NOT NULL AUTO_INCREMENT, balance DECIMAL(15,4) DEFAULT 0.0000,
+  currency VARCHAR(10) DEFAULT 'USD', credit_limit DECIMAL(15,4) DEFAULT 0.0000,
+  updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+  id BIGINT NOT NULL AUTO_INCREMENT, type ENUM('credit','debit','refund','adjustment') NOT NULL,
+  amount DECIMAL(15,4) NOT NULL, balance_after DECIMAL(15,4), reference VARCHAR(128), description TEXT,
+  created_by VARCHAR(64), created_at DATETIME DEFAULT NOW(),
+  PRIMARY KEY (id), INDEX idx_date (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS tenant_users (
+  id VARCHAR(64) NOT NULL, email VARCHAR(128) NOT NULL, name VARCHAR(128), password_hash VARCHAR(256),
+  role ENUM('admin','operator','viewer','billing') DEFAULT 'operator', is_active TINYINT(1) DEFAULT 1,
+  last_login DATETIME, permissions JSON, created_at DATETIME DEFAULT NOW(), updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  PRIMARY KEY (id), UNIQUE KEY uk_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id BIGINT NOT NULL AUTO_INCREMENT, type ENUM('alert','info','warning','error') DEFAULT 'info',
+  title VARCHAR(256), message TEXT, is_read TINYINT(1) DEFAULT 0, data JSON, created_at DATETIME DEFAULT NOW(),
+  PRIMARY KEY (id), INDEX idx_read (is_read)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO wallet (id, balance, currency) VALUES (1, 0.0000, 'USD');
+EOF
+ok "Local tables created"
+
+# ── Insert Default Settings ──────────────────────────────────────
+\$MYSQL "\${TENANT_NAME}" 2>/dev/null <<EOF
+INSERT IGNORE INTO tenant_settings (setting_key, setting_value, description) VALUES
+('tenant_id',       '\${TENANT_ID}',   'Tenant identifier'),
+('tenant_db',       '\${TENANT_NAME}', 'Tenant database'),
+('timezone',        'UTC',             'Default timezone'),
+('currency',        'USD',             'Default currency'),
+('max_tps',         '100',             'Max TPS'),
+('reroute_enabled', '1',               'Auto reroute on fail'),
+('setup_complete',  '1',               'Setup complete');
+EOF
+ok "Default settings inserted"
+
+# ── Register in Global DB ────────────────────────────────────────
+\$MYSQL \${GLOBAL_DB} -e "INSERT INTO tenants (id,name,plan,status) VALUES ('\${TENANT_ID}','\${TENANT_NAME}','basic','active') ON DUPLICATE KEY UPDATE name='\${TENANT_NAME}',status='active';" 2>/dev/null && ok "Registered in global DB" || true
+
+# ── Save Credentials ─────────────────────────────────────────────
+cat > /root/.tenant_\${TENANT_ID} <<EOF
+TENANT_ID=\${TENANT_ID}
+TENANT_DB=\${TENANT_NAME}
+TENANT_PASS=\${TENANT_PASS}
+MYSQL_URL=mysql://\${TENANT_ID}:\${TENANT_PASS}@localhost:3306/\${TENANT_NAME}
+EOF
+chmod 600 /root/.tenant_\${TENANT_ID}
+
+# ── Verify ───────────────────────────────────────────────────────
+echo ""; echo "════════════════════════════════════════"
+echo "  VERIFICATION"
+echo "════════════════════════════════════════"
+echo ""; echo "── Views ──"
+\$MYSQL "\${TENANT_NAME}" -e "SHOW FULL TABLES WHERE Table_type='VIEW';" 2>/dev/null
+echo ""; echo "── Tables ──"
+\$MYSQL "\${TENANT_NAME}" -e "SHOW FULL TABLES WHERE Table_type='BASE TABLE';" 2>/dev/null
+echo ""; echo "── Grants ──"
+\$MYSQL -e "SHOW GRANTS FOR '\${TENANT_ID}'@'localhost';" 2>/dev/null
+echo ""; echo "── Tenant Login Test ──"
+mysql -u "\${TENANT_ID}" -p"\${TENANT_PASS}" "\${TENANT_NAME}" \
+    -e "SELECT COUNT(*) AS sms_count FROM v_sms_log; SELECT balance FROM wallet;" 2>/dev/null \
+    && ok "Tenant login: OK" || fail "Tenant login FAILED"
+
+echo ""
+echo "════════════════════════════════════════"
+echo -e "\${GREEN}  TENANT READY!\${NC}"
+echo "════════════════════════════════════════"
+echo "  DB:   \${TENANT_NAME}"
+echo "  User: \${TENANT_ID} / \${TENANT_PASS}"
+echo "  mysql -u \${TENANT_ID} -p\${TENANT_PASS} \${TENANT_NAME}"
+echo "  Creds: cat /root/.tenant_\${TENANT_ID}"
+echo "════════════════════════════════════════"`,
+
+  billing_trigger: `-- ════════════════════════════════════════════════════════════════════
+--  Net2app Real-Time Billing — Billing-Type Aware Trigger
+--  CLIENT billing_type: send | submit | delivery
+--  SUPPLIER always charged only on successful submit
+-- ════════════════════════════════════════════════════════════════════
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trg_sms_billing_update
+AFTER UPDATE ON net2app.sms_log FOR EACH ROW
+BEGIN
+  DECLARE v_period DATE;
+  DECLARE v_billing_type VARCHAR(16);
+  DECLARE v_force_dlr TINYINT(1);
+  DECLARE v_do_client TINYINT(1) DEFAULT 0;
+  DECLARE v_do_supplier TINYINT(1) DEFAULT 0;
+  SET v_period = DATE(NEW.submit_time);
+  SELECT billing_type, force_dlr INTO v_billing_type, v_force_dlr FROM net2app.clients WHERE id = NEW.client_id LIMIT 1;
+  SET v_billing_type = IFNULL(v_billing_type, 'submit');
+  IF v_billing_type = 'send' THEN
+    IF NEW.status NOT IN ('blocked','pending') THEN SET v_do_client = 1; END IF;
+  ELSEIF v_billing_type = 'submit' THEN
+    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client = 1; END IF;
+  ELSEIF v_billing_type = 'delivery' THEN
+    IF NEW.status = 'delivered' THEN SET v_do_client = 1; END IF;
+    IF v_force_dlr = 1 AND NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client = 1; END IF;
+  END IF;
+  IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_supplier = 1; END IF;
+  INSERT INTO net2app.billing_summary (id, tenant_id, period, total_sms, total_cost, total_revenue, margin)
+  VALUES (CONCAT(NEW.tenant_id,'_', v_period), NEW.tenant_id, v_period,
+    IF(v_do_client,1,0), IF(v_do_supplier, NEW.cost, 0),
+    IF(v_do_client, NEW.sell_rate, 0), IF(v_do_client, NEW.sell_rate, 0) - IF(v_do_supplier, NEW.cost, 0))
+  ON DUPLICATE KEY UPDATE
+    total_sms     = total_sms     + IF(v_do_client,1,0),
+    total_cost    = total_cost    + IF(v_do_supplier, NEW.cost, 0),
+    total_revenue = total_revenue + IF(v_do_client, NEW.sell_rate, 0),
+    margin        = margin        + IF(v_do_client, NEW.sell_rate, 0) - IF(v_do_supplier, NEW.cost, 0),
+    updated_at    = NOW();
+END //
+DELIMITER ;
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trg_device_supplier_stats
+AFTER UPDATE ON net2app.sms_log FOR EACH ROW
+BEGIN
+  DECLARE v_cat VARCHAR(32);
+  SELECT category INTO v_cat FROM net2app.suppliers WHERE id = NEW.supplier_id LIMIT 1;
+  IF v_cat IN ('device','android') THEN
+    IF NEW.status = 'delivered' AND OLD.status != 'delivered' THEN UPDATE net2app.suppliers SET total_delivered = total_delivered + 1 WHERE id = NEW.supplier_id; END IF;
+    IF NEW.status = 'failed' AND OLD.status != 'failed' THEN UPDATE net2app.suppliers SET total_failed = total_failed + 1 WHERE id = NEW.supplier_id; END IF;
+    IF NEW.status IN ('sent','delivered') AND NEW.fail_reason LIKE '%rerouted%' THEN UPDATE net2app.suppliers SET total_rerouted = total_rerouted + 1 WHERE id = NEW.supplier_id; END IF;
+  END IF;
+END //
+DELIMITER ;`,
+
+  cdr_mysql: `; /etc/asterisk/cdr_mysql.conf
+[global]
+hostname=localhost
+dbname=net2app
+table=cdr
+password=STRONG_PASSWORD
+user=net2app
+port=3306
+sock=/var/run/mysqld/mysqld.sock
+userfield=1
+additionalfields=tenant_id|buy_rate|sell_rate|cost`,
+
+  ami_conf: `; /etc/asterisk/manager.conf
+[general]
+enabled = yes
+port = 5038
+bindaddr = 127.0.0.1
+displayconnects = yes
+
+[net2app]
+secret = STRONG_AMI_PASSWORD
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.0
+read = all
+write = all`,
+
+  sip_conf: `; /etc/asterisk/sip.conf
+[general]
+context=default
+udpbindaddr=0.0.0.0
+transport=udp
+nat=force_rport,comedia
+qualify=yes
+dtmfmode=rfc2833
+disallow=all
+allow=ulaw
+allow=alaw
+allow=g729`,
+
+  firewall: `#!/bin/bash
+# Net2app UFW Firewall Setup — Debian 12 — Run as root: bash setup_ufw.sh
+set -e
+apt-get install -y ufw
+echo "y" | ufw reset
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp      comment 'SSH'
+ufw allow 80/tcp      comment 'HTTP'
+ufw allow 443/tcp     comment 'HTTPS'
+ufw allow 5060/udp    comment 'SIP UDP'
+ufw allow 5060/tcp    comment 'SIP TCP'
+ufw allow 5080/udp    comment 'SIP ALT UDP'
+ufw allow 5080/tcp    comment 'SIP ALT TCP'
+ufw allow 6060/udp    comment 'IPTSP ALT'
+ufw allow 7074/udp    comment 'BD IIGW'
+ufw allow 10000:20000/udp comment 'RTP Audio'
+ufw allow from 127.0.0.1 to any port 13000 comment 'Kannel bearerbox admin'
+ufw allow from 127.0.0.1 to any port 13001 comment 'Kannel smsbox port'
+ufw allow from 127.0.0.1 to any port 13013 comment 'Kannel sendsms'
+ufw allow 9095/tcp     comment 'SMPP base port'
+ufw allow 9096:9200/tcp comment 'Tenant SMPP ports'
+ufw allow 4000:6000/tcp comment 'Tenant HTTP panels'
+ufw deny 3306          comment 'MariaDB localhost only'
+ufw allow from 127.0.0.1 to any port 5038 comment 'Asterisk AMI'
+echo "y" | ufw enable
+ufw status verbose`,
+
+  github_deploy: `#!/bin/bash
+# Net2app — Initial GitHub Deploy to Debian 12 Server (run as root once)
+GITHUB_USER="YOUR_GITHUB_USER"
+REPO_NAME="YOUR_REPO_NAME"
+DEPLOY_DIR="/opt/net2app"
+NODE_VERSION="20"
+
+curl -fsSL https://deb.nodesource.com/setup_\${NODE_VERSION}.x | bash -
+apt-get install -y nodejs git build-essential
+mkdir -p \$DEPLOY_DIR
+git clone https://github.com/\${GITHUB_USER}/\${REPO_NAME}.git \$DEPLOY_DIR
+cd \$DEPLOY_DIR
+npm install && npm run build
+cp -r dist/* /var/www/html/
+npm install -g pm2
+
+cat > /etc/nginx/sites-available/net2app << 'NGINX'
+server {
+    listen 80; server_name _;
+    root /var/www/html; index index.html;
+    location / { try_files $uri $uri/ /index.html; }
+}
+NGINX
+
+ln -sf /etc/nginx/sites-available/net2app /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+echo "✅ Net2app deployed at http://\$(hostname -I | awk '{print \$1}')"`,
+
+  github_update: `#!/bin/bash
+# Net2app v2.1.0 — Master Deploy + Update Script
+# Save as /opt/net2app/deploy.sh — Run: bash /opt/net2app/deploy.sh
+set -e
+DEPLOY_DIR="/opt/net2app"
+WEBROOT="/var/www/html"
+BRANCH="main"
+
+echo ""; echo "════════════════════════════════════════════"
+echo "  Net2app Master Deploy Script v2.1.0"
+echo "  \$(date)"; echo "════════════════════════════════════════════"
+
+echo ""; echo "[1/6] Pulling latest from GitHub (\$BRANCH)..."
+cd \$DEPLOY_DIR
+git fetch origin
+git reset --hard origin/\$BRANCH
+echo "    ✅ Code updated — \$(git log -1 --format='%h %s')"
+
+echo ""; echo "[2/6] Installing dependencies..."
+npm install --production=false
+echo "    ✅ Dependencies installed"
+
+echo ""; echo "[3/6] Building React frontend..."
+npm run build
+echo "    ✅ Build complete — \$(du -sh dist/ 2>/dev/null | cut -f1) output"
+
+echo ""; echo "[4/6] Deploying to \$WEBROOT..."
+mkdir -p \$WEBROOT
+cp -r dist/* \$WEBROOT/
+echo "    ✅ Files deployed"
+
+echo ""; echo "[5/6] Reloading nginx..."
+nginx -t && systemctl reload nginx
+echo "    ✅ Nginx reloaded"
+
+echo ""; echo "[6/6] Health check..."
+systemctl is-active nginx       && echo "    ✅ Nginx:     RUNNING" || echo "    ❌ Nginx:     FAILED"
+systemctl is-active mariadb     && echo "    ✅ MariaDB:   RUNNING" || echo "    ❌ MariaDB:   FAILED"
+systemctl is-active kannel-bearerbox && echo "    ✅ Bearerbox: RUNNING" || echo "    ⚠️  Bearerbox: not running"
+systemctl is-active asterisk    && echo "    ✅ Asterisk:  RUNNING" || echo "    ⚠️  Asterisk:  not running"
+
+echo ""; echo "════════════════════════════════════════════"
+echo "  ✅ Deploy complete — \$(date)"
+echo "  App: http://\$(hostname -I | awk '{print \$1}')"
+echo "════════════════════════════════════════════"`,
+
+  github_actions: `# .github/workflows/deploy.yml
+name: Deploy Net2app
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm install && npm run build
+      - uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: \${{ secrets.SERVER_HOST }}
+          username: \${{ secrets.SERVER_USER }}
+          key: \${{ secrets.SERVER_KEY }}
+          script: |
+            cd /opt/net2app
+            git fetch origin && git reset --hard origin/main
+            npm install && npm run build
+            cp -r dist/* /var/www/html/
+            nginx -t && systemctl reload nginx
+            echo "Deployed at \$(date)"`,
+
+  github_ssh: `# Setup SSH Key for GitHub → Server Auto Deploy
+ssh-keygen -t ed25519 -C "net2app-deploy" -f ~/.ssh/deploy_key -N ""
+cat ~/.ssh/deploy_key.pub   # Add to GitHub Repo → Settings → Deploy Keys
+cat ~/.ssh/deploy_key        # Add to GitHub Actions secret SERVER_KEY
+
+cat >> ~/.ssh/config << 'EOF'
+Host github.com
+  IdentityFile ~/.ssh/deploy_key
+  StrictHostKeyChecking no
+EOF
+
+ssh -T git@github.com
+cat ~/.ssh/deploy_key.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys`,
+
+  android_apk: `# Net2app Android SMS Gateway — APK Integration Guide
+# The APK turns any Android phone into a real SMS supplier using its SIM card.
+
+# How it works:
+# 1. Install Net2app Android APK on the phone
+# 2. APK exposes a local HTTP server (port 8080)
+# 3. Platform sends HTTP POST to APK webhook URL
+# 4. APK sends real SMS via Android SIM telephony API
+# 5. APK sends DLR callback on delivery/failure
+# 6. Platform charges client only on DLR (billing_type = delivery)
+
+# APK Webhook (POST http://DEVICE_IP:8080/send)
+# Headers: Authorization: Bearer API_TOKEN
+# Body: { "to": "+880...", "message": "OTP 1234", "message_id": "...", "dlr_url": "http://..." }
+
+# DLR Callback: GET http://PLATFORM_IP/dlr?id=MSG_ID&status=DELIVERED|FAILED
+
+# Key Rules:
+# • Each Android device = one Supplier (category: android)
+# • Set allowed_prefixes per device (e.g. "880,971") — strictly per device
+# • Billing: DLR-only
+# • Fail → auto-reroute to fallback SMPP/HTTP supplier
+# • Multiple devices: Round Robin routing across SIM cards
+
+# APK Permissions: SEND_SMS, READ_PHONE_STATE, RECEIVE_SMS, INTERNET, WAKE_LOCK, FOREGROUND_SERVICE`,
+
+  tenant_smtp: `# Tenant SMTP + Logo Branding (per-tenant via dashboard)
+# Stored in SystemSettings entity, used for rate card emails and invoices.
+
+# setting_key = smtp_host_tenant_{id}  value = smtp.gmail.com
+# setting_key = smtp_port_tenant_{id}  value = 587
+# setting_key = smtp_user_tenant_{id}  value = admin@company.com
+# setting_key = smtp_pass_tenant_{id}  value = APP_PASSWORD
+# setting_key = smtp_from_tenant_{id}  value = "Company Name <admin@company.com>"
+# setting_key = logo_url_tenant_{id}   value = https://cdn.../logo.png
+
+# Rate Card Email:
+# Subject: Rate Update — [Destination] — [Date]
+# Body: HTML table — MCC | MNC | Country | Network | Rate | Currency | Effective Date
+# Attached: CSV export`,
+};
+
+export const ARCH = `
+  ┌─────────────────────────────────────────────────────────────────┐
+  │               Net2app — Debian 12 Multi-Tenant Platform         │
+  │                                                                 │
+  │  ┌──────────────────────────────────────────────────────────┐  │
+  │  │   KANNEL BEARERBOX (core) — port 13000 admin              │  │
+  │  │   • SMPP SERVER mode: listens per-tenant ports 9096+      │  │
+  │  │   • SMPP CLIENT mode: connects OUT to suppliers           │  │
+  │  │   • HTTP CLIENT mode: forwards to HTTP API suppliers      │  │
+  │  │   • SIM Box (BearBox/GoIP) via AT modem or SMPP          │  │
+  │  │   KANNEL SMSBOX — port 13013 (HTTP submit)               │  │
+  │  │   • Tenant HTTP panels proxy via nginx 4000-6000          │  │
+  │  └────────────────────────┬─────────────────────────────────┘  │
+  │                           │                                     │
+  │  ┌─────────────────────────▼────────────────────────────────┐  │
+  │  │              MariaDB — net2app master DB                  │  │
+  │  │  clients | suppliers | routes | rates | sms_log | cdr    │  │
+  │  │  ip_access | invoices | billing_summary (real-time)       │  │
+  │  │  Per-tenant VIEWS — tenant sees only their data           │  │
+  │  └──────────────────────────────────────────────────────────┘  │
+  │                                                                 │
+  │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐   │
+  │  │  Asterisk 20 │  │  Net2app API │  │  Nginx (tenant)    │   │
+  │  │  PJSIP :5060 │  │  DLR handler │  │  4000–6000 panels  │   │
+  │  │  AMI   :5038 │  │  CDR billing │  │  80/443 admin      │   │
+  │  │  CDR → DB    │  └──────────────┘  └────────────────────┘   │
+  │  └──────────────┘                                               │
+  │                                                                 │
+  │  Tenants → SMPP bind to port 9096+  (bearerbox SMPP server)    │
+  │  Suppliers ← SMPP/HTTP connect out  (bearerbox client)         │
+  │  SIM Boxes ← AT/SMPP devices        (bearerbox bearer)         │
+  │  Android Suppliers ← APK HTTP webhook (real SIM SMS + DLR)     │
+  └─────────────────────────────────────────────────────────────────┘
+`;
