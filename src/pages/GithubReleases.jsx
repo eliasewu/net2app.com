@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/shared/PageHeader";
 import { GitBranch, Tag, Plus, Trash2, ExternalLink, RefreshCw, Package } from "lucide-react";
+import DeployScriptViewer from "@/components/github/DeployScriptViewer";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -173,6 +174,9 @@ export default function GithubReleases() {
           )}
         </CardContent>
       </Card>
+
+      {/* Deploy Script */}
+      <DeployScriptViewer />
 
       {/* Tags list */}
       {tags.length > 0 && (

@@ -9,6 +9,7 @@ import {
   LineChart, Line, CartesianGrid,
 } from "recharts";
 import { TrendingDown, Activity, CheckCircle2, Zap } from "lucide-react";
+import ExportMetricsButton from "@/components/dashboard/ExportMetricsButton";
 import { RULE_TYPE_META } from "@/lib/routingEngine";
 import { format, subDays } from "date-fns";
 import SupplierHealthPanel from "@/components/routing/SupplierHealthPanel";
@@ -85,7 +86,9 @@ export default function RoutingAnalytics() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Routing Analytics" description="Traffic trends, supplier performance, and LCR cost savings" />
+      <PageHeader title="Routing Analytics" description="Traffic trends, supplier performance, and LCR cost savings">
+        <ExportMetricsButton healthRecords={[]} routingRules={rules} smsLogs={smsLogs} />
+      </PageHeader>
 
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

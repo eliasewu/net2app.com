@@ -10,6 +10,7 @@ import {
   Activity, AlertTriangle, CheckCircle2, XCircle,
   RefreshCw, RotateCcw, Settings2, Clock
 } from "lucide-react";
+import ExportMetricsButton from "@/components/dashboard/ExportMetricsButton";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -83,10 +84,13 @@ export default function SupplierHealthPanel() {
             {criticalCount > 0 && <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">{criticalCount} Critical</Badge>}
             {autoDisabled > 0 && <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-xs">{autoDisabled} Auto-Disabled</Badge>}
           </CardTitle>
-          <Button size="sm" variant="outline" onClick={runHealthCheck} disabled={running} className="gap-1.5">
-            <RefreshCw className={`w-3.5 h-3.5 ${running ? "animate-spin" : ""}`} />
-            {running ? "Running..." : "Run Health Check"}
-          </Button>
+          <div className="flex gap-2">
+            <ExportMetricsButton healthRecords={healthRecords} routingRules={[]} smsLogs={[]} />
+            <Button size="sm" variant="outline" onClick={runHealthCheck} disabled={running} className="gap-1.5">
+              <RefreshCw className={`w-3.5 h-3.5 ${running ? "animate-spin" : ""}`} />
+              {running ? "Running..." : "Run Health Check"}
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">Computed from last 60 minutes of SMS logs. Auto-refreshes every 30s. Suppliers exceeding error threshold are automatically set to inactive.</p>
       </CardHeader>
