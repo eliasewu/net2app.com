@@ -73,6 +73,7 @@ export default function IntegrationDeployGuide() {
           <TabsTrigger value="security" className="gap-1 text-xs"><Shield className="w-3 h-3" />Firewall</TabsTrigger>
           <TabsTrigger value="smtp" className="gap-1 text-xs"><Settings className="w-3 h-3" />SMTP/Logo</TabsTrigger>
           <TabsTrigger value="android_apk" className="gap-1 text-xs"><Phone className="w-3 h-3" />Android APK</TabsTrigger>
+          <TabsTrigger value="billing_setup" className="gap-1 text-xs"><Database className="w-3 h-3" />Billing Setup</TabsTrigger>
           <TabsTrigger value="github" className="gap-1 text-xs"><GitBranch className="w-3 h-3" />GitHub Deploy</TabsTrigger>
         </TabsList>
 
@@ -281,6 +282,26 @@ systemctl reload fail2ban`} />
             <p>Any Android phone becomes a real SMS supplier using its SIM card with DLR-only billing and auto-reroute fallback.</p>
           </InfoBox>
           <CodeBlock label="Android APK Integration Guide" code={SCRIPTS.android_apk} color="text-orange-300" />
+        </TabsContent>
+
+        {/* Billing Setup */}
+        <TabsContent value="billing_setup" className="mt-4 space-y-4">
+          <InfoBox color="green">
+            <p className="font-bold">Billing Triggers + Stored Procedures — run as root on your Debian 12 server</p>
+            <p>Creates 4 MySQL triggers (send/submit/delivery billing, device stats) and 3 stored procedures (dashboard, supplier report, client report). Also alters tables to add billing_type, force_dlr, and margin columns.</p>
+          </InfoBox>
+          <CodeBlock label="Save as setup-billing.sh → bash setup-billing.sh" code={SCRIPTS.setup_billing} color="text-yellow-300" />
+          <InfoBox color="orange">
+            <p className="font-bold">If billing routes are not registered in the Node server:</p>
+            <p>Run <code>fix-routes.sh</code> below — it registers the billing API, fixes the MySQL pool, installs mysql2, and restarts PM2.</p>
+          </InfoBox>
+          <CodeBlock label="Save as fix-routes.sh → bash fix-routes.sh" code={SCRIPTS.fix_routes} color="text-cyan-300" />
+          <InfoBox color="blue">
+            <p className="font-bold">API Endpoints after setup:</p>
+            <p>GET /api/billing/dashboard • GET /api/billing/summary • GET /api/billing/sms-log</p>
+            <p>GET /api/billing/invoices • POST /api/billing/invoice/generate</p>
+            <p>GET /api/billing/supplier-report • GET /api/billing/client-report • POST /api/billing/dlr</p>
+          </InfoBox>
         </TabsContent>
 
         {/* GitHub Deploy */}

@@ -935,6 +935,267 @@ chmod 600 ~/.ssh/authorized_keys`,
 
 # APK Permissions: SEND_SMS, READ_PHONE_STATE, RECEIVE_SMS, INTERNET, WAKE_LOCK, FOREGROUND_SERVICE`,
 
+  setup_billing: `#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════
+#  Net2app — Billing Triggers + Stored Procedures + Frontend Sync
+#  Run as root: bash setup-billing.sh
+# ═══════════════════════════════════════════════════════════════════
+set -e
+
+GREEN='\\033[0;32m'; RED='\\033[0;31m'; YELLOW='\\033[1;33m'; BLUE='\\033[0;34m'; NC='\\033[0m'
+ok()     { echo -e "\${GREEN}[OK]\${NC} \$1"; }
+fail()   { echo -e "\${RED}[FAIL]\${NC} \$1"; exit 1; }
+info()   { echo -e "\${YELLOW}[i]\${NC} \$1"; }
+header() { echo -e "\\n\${BLUE}== \$1 ==\${NC}\\n"; }
+
+ROOT_PASS="Telco1988"
+DB_NAME="net2app"
+
+if [ "\$EUID" -ne 0 ]; then exec sudo bash "\$0" "\$@"; fi
+
+header "STEP 1: Verify MySQL"
+systemctl start mysql 2>/dev/null || true; sleep 2
+mysqladmin -u root -p"\${ROOT_PASS}" ping 2>/dev/null | grep -q "alive" && ok "MySQL running" || fail "MySQL not running"
+
+header "STEP 2: Update Tables"
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} 2>/dev/null <<'EOF'
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS billing_type      ENUM('send','submit','delivery') DEFAULT 'submit',
+  ADD COLUMN IF NOT EXISTS force_dlr         TINYINT(1) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS force_dlr_timeout INT DEFAULT 30;
+ALTER TABLE billing_summary
+  ADD COLUMN IF NOT EXISTS margin DECIMAL(14,4) DEFAULT 0.0000;
+ALTER TABLE sms_log
+  MODIFY COLUMN status ENUM('pending','sent','delivered','failed','rejected','blocked','rerouted','submitted') DEFAULT 'pending';
+SELECT 'Tables updated' AS result;
+EOF
+ok "Tables updated"
+
+header "STEP 3: Drop Old Triggers"
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} 2>/dev/null <<'EOF'
+DROP TRIGGER IF EXISTS trg_sms_billing_update;
+DROP TRIGGER IF EXISTS trg_device_supplier_stats;
+DROP TRIGGER IF EXISTS trg_device_supplier_sent;
+DROP TRIGGER IF EXISTS trg_sms_billing_insert;
+EOF
+
+header "STEP 4: Create Triggers"
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} 2>/dev/null <<'EOTRIGGER'
+CREATE TRIGGER trg_sms_billing_update
+AFTER UPDATE ON sms_log FOR EACH ROW
+BEGIN
+  DECLARE v_period DATE; DECLARE v_billing_type VARCHAR(16); DECLARE v_force_dlr TINYINT(1);
+  DECLARE v_do_client TINYINT(1) DEFAULT 0; DECLARE v_do_supplier TINYINT(1) DEFAULT 0;
+  SET v_period = DATE(NEW.submit_time);
+  SELECT IFNULL(billing_type,'submit'), IFNULL(force_dlr,0) INTO v_billing_type, v_force_dlr FROM clients WHERE id=NEW.client_id LIMIT 1;
+  CASE v_billing_type
+    WHEN 'send' THEN IF NEW.status NOT IN ('blocked','pending') THEN SET v_do_client=1; END IF;
+    WHEN 'submit' THEN IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
+    WHEN 'delivery' THEN
+      IF NEW.status='delivered' THEN SET v_do_client=1; END IF;
+      IF v_force_dlr=1 AND NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
+    ELSE IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
+  END CASE;
+  IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_supplier=1; END IF;
+  IF NEW.status != OLD.status THEN
+    INSERT INTO billing_summary (id, tenant_id, period, total_sms, total_cost, total_revenue, margin)
+    VALUES (CONCAT(NEW.tenant_id,'_',DATE_FORMAT(v_period,'%Y%m%d')), NEW.tenant_id, v_period,
+      IF(v_do_client,1,0), IF(v_do_supplier,NEW.cost,0), IF(v_do_client,NEW.sell_rate,0),
+      IF(v_do_client,NEW.sell_rate,0)-IF(v_do_supplier,NEW.cost,0))
+    ON DUPLICATE KEY UPDATE
+      total_sms=total_sms+IF(v_do_client,1,0), total_cost=total_cost+IF(v_do_supplier,NEW.cost,0),
+      total_revenue=total_revenue+IF(v_do_client,NEW.sell_rate,0),
+      margin=margin+IF(v_do_client,NEW.sell_rate,0)-IF(v_do_supplier,NEW.cost,0), updated_at=NOW();
+    IF v_do_client=1 THEN UPDATE clients SET balance=balance-NEW.sell_rate WHERE id=NEW.client_id; END IF;
+  END IF;
+END;
+EOTRIGGER
+ok "Trigger 1: trg_sms_billing_update"
+
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} 2>/dev/null <<'EOTRIGGER'
+CREATE TRIGGER trg_device_supplier_stats
+AFTER UPDATE ON sms_log FOR EACH ROW
+BEGIN
+  DECLARE v_cat VARCHAR(32);
+  SELECT category INTO v_cat FROM suppliers WHERE id=NEW.supplier_id LIMIT 1;
+  IF v_cat IN ('device','android','whatsapp','telegram','imo') THEN
+    IF NEW.status='delivered' AND OLD.status!='delivered' THEN UPDATE suppliers SET total_delivered=total_delivered+1 WHERE id=NEW.supplier_id; END IF;
+    IF NEW.status='failed' AND OLD.status!='failed' THEN UPDATE suppliers SET total_failed=total_failed+1 WHERE id=NEW.supplier_id; END IF;
+    IF NEW.status IN ('sent','delivered','rerouted') AND NEW.fail_reason LIKE '%rerouted%' AND OLD.status!=NEW.status THEN UPDATE suppliers SET total_rerouted=total_rerouted+1 WHERE id=NEW.supplier_id; END IF;
+  END IF;
+END;
+EOTRIGGER
+ok "Trigger 2: trg_device_supplier_stats"
+
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} 2>/dev/null <<'EOTRIGGER'
+CREATE TRIGGER trg_device_supplier_sent
+AFTER INSERT ON sms_log FOR EACH ROW
+BEGIN
+  DECLARE v_cat VARCHAR(32);
+  SELECT category INTO v_cat FROM suppliers WHERE id=NEW.supplier_id LIMIT 1;
+  IF v_cat IN ('device','android','whatsapp','telegram','imo') THEN
+    UPDATE suppliers SET total_sent=total_sent+1 WHERE id=NEW.supplier_id;
+  END IF;
+END;
+EOTRIGGER
+ok "Trigger 3: trg_device_supplier_sent"
+
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} 2>/dev/null <<'EOTRIGGER'
+CREATE TRIGGER trg_sms_billing_insert
+AFTER INSERT ON sms_log FOR EACH ROW
+BEGIN
+  DECLARE v_billing_type VARCHAR(16); DECLARE v_force_dlr TINYINT(1);
+  SELECT IFNULL(billing_type,'submit'), IFNULL(force_dlr,0) INTO v_billing_type, v_force_dlr FROM clients WHERE id=NEW.client_id LIMIT 1;
+  IF v_billing_type='send' AND NEW.status NOT IN ('blocked','pending') THEN
+    INSERT INTO billing_summary (id, tenant_id, period, total_sms, total_cost, total_revenue, margin)
+    VALUES (CONCAT(NEW.tenant_id,'_',DATE_FORMAT(DATE(NEW.submit_time),'%Y%m%d')), NEW.tenant_id, DATE(NEW.submit_time), 1, NEW.cost, NEW.sell_rate, NEW.sell_rate-NEW.cost)
+    ON DUPLICATE KEY UPDATE total_sms=total_sms+1, total_cost=total_cost+NEW.cost, total_revenue=total_revenue+NEW.sell_rate, margin=margin+(NEW.sell_rate-NEW.cost), updated_at=NOW();
+    UPDATE clients SET balance=balance-NEW.sell_rate WHERE id=NEW.client_id;
+  END IF;
+END;
+EOTRIGGER
+ok "Trigger 4: trg_sms_billing_insert"
+
+header "STEP 5: Stored Procedures"
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} 2>/dev/null <<'EOPROC'
+DROP PROCEDURE IF EXISTS sp_today_dashboard;
+DROP PROCEDURE IF EXISTS sp_generate_invoice;
+DROP PROCEDURE IF EXISTS sp_supplier_report;
+DROP PROCEDURE IF EXISTS sp_client_report;
+
+CREATE PROCEDURE sp_today_dashboard(IN p_tenant_id VARCHAR(64))
+BEGIN
+  SELECT COUNT(*) AS total_sms,
+    SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
+    SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+    SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+    ROUND(SUM(CASE WHEN status='delivered' THEN 1.0 ELSE 0 END)/NULLIF(COUNT(*),0)*100,2) AS dlr_rate,
+    IFNULL(SUM(cost),0) AS total_cost, IFNULL(SUM(sell_rate),0) AS total_revenue,
+    IFNULL(SUM(sell_rate)-SUM(cost),0) AS total_margin
+  FROM sms_log WHERE tenant_id=p_tenant_id AND DATE(submit_time)=CURDATE();
+
+  SELECT supplier_name, COUNT(*) AS total,
+    SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
+    ROUND(SUM(CASE WHEN status='delivered' THEN 1.0 ELSE 0 END)/NULLIF(COUNT(*),0)*100,2) AS dlr_pct,
+    IFNULL(SUM(cost),0) AS cost
+  FROM sms_log WHERE tenant_id=p_tenant_id AND DATE(submit_time)=CURDATE()
+  GROUP BY supplier_name ORDER BY total DESC LIMIT 5;
+
+  SELECT HOUR(submit_time) AS hour, COUNT(*) AS total,
+    SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
+    SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+  FROM sms_log WHERE tenant_id=p_tenant_id AND DATE(submit_time)=CURDATE()
+  GROUP BY HOUR(submit_time) ORDER BY hour;
+END;
+
+CREATE PROCEDURE sp_supplier_report(IN p_tenant_id VARCHAR(64), IN p_supplier_id VARCHAR(64), IN p_start DATE, IN p_end DATE)
+BEGIN
+  SELECT supplier_id, supplier_name, country, network, COUNT(*) AS total_sent,
+    SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
+    SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+    ROUND(SUM(CASE WHEN status='delivered' THEN 1.0 ELSE 0 END)/NULLIF(COUNT(*),0)*100,2) AS dlr_pct,
+    IFNULL(SUM(cost),0) AS total_cost
+  FROM sms_log
+  WHERE tenant_id=p_tenant_id AND (p_supplier_id IS NULL OR supplier_id=p_supplier_id)
+    AND submit_time BETWEEN p_start AND DATE_ADD(p_end, INTERVAL 1 DAY)
+  GROUP BY supplier_id, supplier_name, country, network ORDER BY total_sent DESC;
+END;
+
+CREATE PROCEDURE sp_client_report(IN p_tenant_id VARCHAR(64), IN p_client_id VARCHAR(64), IN p_start DATE, IN p_end DATE)
+BEGIN
+  SELECT client_id, client_name, country, network, COUNT(*) AS total_sms,
+    IFNULL(SUM(sell_rate),0) AS total_revenue, IFNULL(SUM(cost),0) AS total_cost,
+    IFNULL(SUM(sell_rate)-SUM(cost),0) AS margin
+  FROM sms_log
+  WHERE tenant_id=p_tenant_id AND (p_client_id IS NULL OR client_id=p_client_id)
+    AND submit_time BETWEEN p_start AND DATE_ADD(p_end, INTERVAL 1 DAY)
+  GROUP BY client_id, client_name, country, network ORDER BY total_revenue DESC;
+END;
+EOPROC
+ok "Stored procedures created"
+
+header "STEP 6: Verify"
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} \
+  -e "SELECT trigger_name, event_manipulation, action_timing FROM information_schema.triggers WHERE trigger_schema='\${DB_NAME}';" 2>/dev/null
+mysql -u root -p\${ROOT_PASS} \${DB_NAME} \
+  -e "SELECT routine_name, routine_type FROM information_schema.routines WHERE routine_schema='\${DB_NAME}';" 2>/dev/null
+
+echo ""
+echo "============================================"
+echo "  BILLING SYSTEM READY"
+echo "============================================"
+echo "  Triggers: trg_sms_billing_insert, trg_sms_billing_update"
+echo "            trg_device_supplier_stats, trg_device_supplier_sent"
+echo "  SPs:      sp_today_dashboard, sp_supplier_report, sp_client_report"
+echo "============================================"`,
+
+  fix_routes: `#!/bin/bash
+# ============================================
+# FIX — Register Billing Routes in Server
+# Run: bash fix-routes.sh
+# ============================================
+APP_DIR="/var/www/net2app.com"
+GREEN='\\033[0;32m'; RED='\\033[0;31m'; YELLOW='\\033[1;33m'; NC='\\033[0m'
+ok()   { echo -e "\${GREEN}[OK]\${NC} \$1"; }
+fail() { echo -e "\${RED}[FAIL]\${NC} \$1"; }
+info() { echo -e "\${YELLOW}[i]\${NC} \$1"; }
+
+echo ""; echo "== Checking Routes =="
+grep -n "app.use\\|require\\|routes" \${APP_DIR}/server/index.js 2>/dev/null | head -20
+ls -la \${APP_DIR}/server/routes/ 2>/dev/null || echo "routes dir not found"
+
+info "Fixing MySQL pool..."
+mkdir -p \${APP_DIR}/server/db
+
+cat > \${APP_DIR}/server/db/mysql.js <<'EOF'
+const mysql  = require('mysql2/promise');
+const logger = require('../utils/logger');
+const pool = mysql.createPool({
+  host: process.env.MYSQL_HOST || 'localhost',
+  port: parseInt(process.env.MYSQL_PORT) || 3306,
+  database: process.env.MYSQL_DB || 'net2app',
+  user: process.env.MYSQL_USER || 'net2app',
+  password: process.env.MYSQL_PASS || 'Telco1988',
+  connectionLimit: 20, charset: 'utf8mb4',
+  timezone: '+00:00', multipleStatements: true
+});
+async function query(sql, params=[]) {
+  try { const [rows] = await pool.execute(sql, params); return rows; }
+  catch(err) { logger.error('MySQL: '+err.message); throw err; }
+}
+async function testConnection() {
+  const conn = await pool.getConnection();
+  await conn.execute('SELECT 1'); conn.release();
+  logger.info('MariaDB connected');
+}
+module.exports = { pool, query, testConnection };
+EOF
+ok "MySQL pool created"
+
+info "Registering billing route in index.js..."
+if ! grep -q "routes/billing" \${APP_DIR}/server/index.js 2>/dev/null; then
+  sed -i "s|app.use('/api/sync'|app.use('/api/billing', require('./routes/billing'));\\napp.use('/api/sync'|" \${APP_DIR}/server/index.js
+  ok "Billing route registered"
+else
+  ok "Billing route already registered"
+fi
+
+info "Installing mysql2..."
+cd \${APP_DIR}/server && npm install mysql2 2>&1 | tail -2
+
+info "Restarting PM2..."
+pm2 restart ecosystem.config.cjs 2>/dev/null || pm2 restart net2app-server 2>/dev/null || true
+sleep 4
+
+echo ""; echo "== Testing Routes =="
+for ROUTE in "health" "api/billing/health" "api/billing/dashboard?tenant_id=default" "api/billing/sms-log?tenant_id=default&limit=5"; do
+  CODE=\$(curl -so /dev/null -w "%{http_code}" --connect-timeout 5 "http://127.0.0.1:5000/\${ROUTE}" 2>/dev/null)
+  [ "\$CODE" = "200" ] && ok "/\${ROUTE} -> \${CODE}" || fail "/\${ROUTE} -> \${CODE}"
+done
+
+echo ""; echo "  curl http://127.0.0.1:5000/api/billing/dashboard?tenant_id=default"
+echo "  pm2 logs net2app-server --lines 20"`,
+
   tenant_smtp: `# Tenant SMTP + Logo Branding (per-tenant via dashboard)
 # Stored in SystemSettings entity, used for rate card emails and invoices.
 
