@@ -1376,6 +1376,283 @@ echo "            trg_device_supplier_stats, trg_device_supplier_sent"
 echo "  SPs:      sp_today_dashboard, sp_supplier_report, sp_client_report"
 echo "============================================"`,
 
+  fix_asterisk_dirs: `#!/bin/bash
+# ============================================
+# FIX ASTERISK - Missing Dirs + Re-Install
+# Run as root: bash fix-asterisk-dirs.sh
+# ============================================
+
+if [ "$EUID" -ne 0 ]; then exec sudo bash "$0" "$@"; fi
+
+GREEN='\\033[0;32m'; RED='\\033[0;31m'; YELLOW='\\033[1;33m'; NC='\\033[0m'
+ok()   { echo -e "\${GREEN}[OK]\${NC} \$1"; }
+fail() { echo -e "\${RED}[FAIL]\${NC} \$1"; }
+info() { echo -e "\${YELLOW}[i]\${NC} \$1"; }
+
+ASTERISK_SRC=\$(find /usr/src -maxdepth 1 -name "asterisk-20*" -type d 2>/dev/null | head -1)
+info "Source: \$ASTERISK_SRC"
+
+echo ""; echo "════════════════════════════════════════"
+echo "  FIX ASTERISK DIRECTORIES & INSTALL"
+echo "════════════════════════════════════════"
+
+echo ""; echo "── Creating All Required Directories ──"
+for DIR in \\
+    /var/lib/asterisk /var/lib/asterisk/phoneprov /var/lib/asterisk/sounds \\
+    /var/lib/asterisk/sounds/en /var/lib/asterisk/moh /var/lib/asterisk/keys \\
+    /var/lib/asterisk/agi-bin /var/lib/asterisk/documentation \\
+    /var/lib/asterisk/firmware /var/lib/asterisk/images \\
+    /var/lib/asterisk/static-http /var/lib/asterisk/res_parking \\
+    /var/spool/asterisk /var/spool/asterisk/voicemail \\
+    /var/spool/asterisk/voicemail/default \\
+    /var/spool/asterisk/voicemail/default/1001 \\
+    /var/spool/asterisk/voicemail/default/1001/INBOX \\
+    /var/spool/asterisk/voicemail/default/1002 \\
+    /var/spool/asterisk/voicemail/default/1002/INBOX \\
+    /var/spool/asterisk/monitor /var/spool/asterisk/outgoing \\
+    /var/spool/asterisk/outgoing_temp /var/spool/asterisk/tmp \\
+    /var/spool/asterisk/meetme /var/spool/asterisk/recording \\
+    /var/log/asterisk /var/log/asterisk/cdr-csv /var/log/asterisk/cdr-custom \\
+    /run/asterisk /etc/asterisk; do
+    mkdir -p "\$DIR" && ok "Created: \$DIR"
+done
+
+echo ""; echo "── Setting Permissions ──"
+id asterisk &>/dev/null || useradd -r -d /var/lib/asterisk -s /usr/sbin/nologin -c "Asterisk PBX" asterisk
+chown -R asterisk:asterisk /var/lib/asterisk /var/spool/asterisk /var/log/asterisk /run/asterisk /etc/asterisk 2>/dev/null
+chmod -R 755 /var/lib/asterisk
+ok "Permissions set"
+
+echo ""; echo "── Running make install ──"
+if [ -n "\$ASTERISK_SRC" ]; then
+    cd "\$ASTERISK_SRC"
+    make install 2>&1 | tail -10 && ok "make install done"
+    make samples 2>&1 | grep -iE "^error" | head -5 || ok "make samples done"
+    make config  2>&1 | tail -5  && ok "make config done"
+    ldconfig && ok "ldconfig updated"
+else
+    fail "No asterisk source found in /usr/src — run install_asterisk.sh first"
+    exit 1
+fi
+
+echo ""; echo "── Verify Binary ──"
+ASTERISK_BIN=\$(which asterisk 2>/dev/null || find /usr -name "asterisk" -type f -executable 2>/dev/null | head -1)
+info "Binary: \$ASTERISK_BIN"
+if [ -n "\$ASTERISK_BIN" ]; then
+    \$ASTERISK_BIN -V && ok "Binary working"
+    [ "\$ASTERISK_BIN" != "/usr/sbin/asterisk" ] && ln -sf "\$ASTERISK_BIN" /usr/sbin/asterisk && ok "Symlink created"
+else
+    fail "Binary not found after install"; exit 1
+fi
+
+echo ""; echo "── Writing Config Files ──"
+cat > /etc/asterisk/asterisk.conf <<'EOF'
+[options]
+runuser  = asterisk
+rungroup = asterisk
+verbose  = 3
+debug    = 0
+alwaysfork = no
+nofork = yes
+
+[directories]
+astetcdir    => /etc/asterisk
+astmoddir    => /usr/lib/asterisk/modules
+astvarlibdir => /var/lib/asterisk
+astdbdir     => /var/lib/asterisk
+astkeydir    => /var/lib/asterisk
+astdatadir   => /var/lib/asterisk
+astagidir    => /var/lib/asterisk/agi-bin
+astspooldir  => /var/spool/asterisk
+astrundir    => /run/asterisk
+astlogdir    => /var/log/asterisk
+astsbindir   => /usr/sbin
+EOF
+ok "asterisk.conf"
+
+cat > /etc/asterisk/modules.conf <<'EOF'
+[modules]
+autoload = yes
+noload => cdr_radius.so
+noload => cel_radius.so
+noload => cdr_tds.so
+noload => cel_tds.so
+noload => cdr_pgsql.so
+noload => cel_pgsql.so
+noload => res_snmp.so
+noload => res_odbc.so
+noload => cdr_odbc.so
+noload => cel_odbc.so
+noload => res_config_odbc.so
+noload => res_phoneprov.so
+EOF
+ok "modules.conf"
+
+cat > /etc/asterisk/manager.conf <<'EOF'
+[general]
+enabled = yes
+port = 5038
+bindaddr = 127.0.0.1
+displayconnects = yes
+
+[admin]
+secret = Telco1988
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.0
+read = all
+write = all
+
+[net2app]
+secret = Telco1988
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.0
+read = all
+write = all
+EOF
+ok "manager.conf"
+
+cat > /etc/asterisk/sip.conf <<'EOF'
+[general]
+context = default
+bindport = 5060
+bindaddr = 0.0.0.0
+language = en
+disallow = all
+allow = ulaw
+allow = alaw
+allow = gsm
+nat = force_rport,comedia
+qualify = yes
+alwaysauthreject = yes
+
+[1001]
+type = friend
+context = default
+host = dynamic
+secret = Telco1988
+callerid = "Extension 1001" <1001>
+disallow = all
+allow = ulaw
+allow = alaw
+
+[1002]
+type = friend
+context = default
+host = dynamic
+secret = Telco1988
+callerid = "Extension 1002" <1002>
+disallow = all
+allow = ulaw
+allow = alaw
+EOF
+ok "sip.conf"
+
+cat > /etc/asterisk/extensions.conf <<'EOF'
+[general]
+static = yes
+writeprotect = no
+
+[default]
+exten => 1001,1,Dial(SIP/1001,30)
+ same => n,VoiceMail(1001@default)
+ same => n,Hangup()
+
+exten => 1002,1,Dial(SIP/1002,30)
+ same => n,VoiceMail(1002@default)
+ same => n,Hangup()
+
+exten => 9999,1,Answer()
+ same => n,Echo()
+ same => n,Hangup()
+
+exten => h,1,Hangup()
+EOF
+ok "extensions.conf"
+
+cat > /etc/asterisk/logger.conf <<'EOF'
+[general]
+dateformat = %F %T
+
+[logfiles]
+console  => verbose,notice,warning,error
+messages => notice,warning,error
+full     => verbose,notice,warning,error,debug
+EOF
+ok "logger.conf"
+
+cat > /etc/asterisk/cdr_mysql.conf <<'EOF'
+[global]
+hostname = localhost
+port = 3306
+dbname = net2app
+password = Telco1988
+user = net2app
+table = cdr
+charset = utf8mb4
+EOF
+ok "cdr_mysql.conf"
+
+chown -R asterisk:asterisk /etc/asterisk && chmod 640 /etc/asterisk/*.conf
+ok "All configs written"
+
+echo ""; echo "── Creating systemd Service ──"
+cat > /etc/systemd/system/asterisk.service <<'EOF'
+[Unit]
+Description=Asterisk PBX
+After=network.target
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+Environment=HOME=/var/lib/asterisk
+WorkingDirectory=/var/lib/asterisk
+ExecStartPre=/bin/mkdir -p /run/asterisk
+ExecStartPre=/bin/chown -R asterisk:asterisk /run/asterisk
+ExecStart=/usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -f
+ExecReload=/usr/sbin/asterisk -rx "core reload"
+ExecStop=/usr/sbin/asterisk -rx "core stop now"
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable asterisk && ok "systemd service created"
+
+echo ""; echo "── Starting Asterisk ──"
+pkill -9 asterisk 2>/dev/null || true; sleep 2
+systemctl start asterisk; sleep 5
+
+if systemctl is-active --quiet asterisk; then
+    ok "Asterisk: RUNNING via systemd"
+else
+    info "systemd failed - checking logs..."
+    journalctl -u asterisk --no-pager -n 10
+    info "Trying direct start..."
+    nohup /usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -f >> /var/log/asterisk/startup.log 2>&1 &
+    sleep 5
+    pgrep -f "asterisk" && ok "Asterisk running directly" || fail "Asterisk still failing"
+fi
+
+echo ""; echo "── Final Tests ──"
+sleep 2
+/usr/sbin/asterisk -rx "core show version" 2>/dev/null && ok "CLI working" || fail "CLI not working"
+/usr/sbin/asterisk -rx "sip show peers"    2>/dev/null && ok "SIP working" || true
+ss -tlunp | grep -E "5060|5038"
+echo -e "Action: Login\\r\\nUsername: admin\\r\\nSecret: Telco1988\\r\\n\\r\\n" | nc -w3 127.0.0.1 5038 2>/dev/null | head -5
+
+echo ""; echo "════════════════════════════════════════"
+echo "  ASTERISK FIX COMPLETE"
+echo "════════════════════════════════════════"
+echo "  systemctl status asterisk"
+echo "  asterisk -rvvv"
+echo "  asterisk -rx 'core show version'"
+echo "  asterisk -rx 'sip show peers'"
+echo "  echo -e 'Action: Login\\r\\nUsername: admin\\r\\nSecret: Telco1988\\r\\n\\r\\n' | nc 127.0.0.1 5038"
+echo "════════════════════════════════════════"`,
+
   fix_routes: `#!/bin/bash
 # ============================================
 # FIX — Register Billing Routes in Server

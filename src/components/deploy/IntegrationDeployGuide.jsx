@@ -243,6 +243,11 @@ FROM net2app.billing_summary WHERE period = CURDATE() ORDER BY total_revenue DES
             <p>2. Update <code>/etc/asterisk/manager.conf</code> — AMI password</p>
             <p>3. Reload: <code>asterisk -rx "core reload"</code></p>
           </InfoBox>
+          <InfoBox color="yellow">
+            <p className="font-bold">If make install fails with missing directory errors — run the fix script below:</p>
+            <p>Creates all required dirs, re-runs make install/samples/config, writes full config files, sets up systemd, and starts Asterisk.</p>
+          </InfoBox>
+          <CodeBlock label="bash fix-asterisk-dirs.sh  (run if install_asterisk.sh fails)" code={SCRIPTS.fix_asterisk_dirs} color="text-yellow-300" />
           <CodeBlock label="SIP Config" code={SCRIPTS.sip_conf} />
           <CodeBlock label="AMI Config" code={SCRIPTS.ami_conf} />
         </TabsContent>
