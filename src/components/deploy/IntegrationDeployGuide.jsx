@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Copy, Server, Wifi, Phone, Database, Shield, BookOpen, Users, Settings, GitBranch } from "lucide-react";
 import { toast } from "sonner";
 import { SCRIPTS, ARCH } from "./deployScripts";
+import { SMPP_API_SERVER_SCRIPT, MARIADB_SMPP_TABLE } from "./deployScriptsSmpp";
 
 function CodeBlock({ label, code, color = "text-green-400" }) {
   return (
@@ -75,6 +76,7 @@ export default function IntegrationDeployGuide() {
           <TabsTrigger value="android_apk" className="gap-1 text-xs"><Phone className="w-3 h-3" />Android APK</TabsTrigger>
           <TabsTrigger value="billing_setup" className="gap-1 text-xs"><Database className="w-3 h-3" />Billing Setup</TabsTrigger>
           <TabsTrigger value="github" className="gap-1 text-xs"><GitBranch className="w-3 h-3" />GitHub Deploy</TabsTrigger>
+          <TabsTrigger value="smpp_api" className="gap-1 text-xs"><Wifi className="w-3 h-3" />SMPP API Server</TabsTrigger>
         </TabsList>
 
         {/* Overview */}
@@ -339,6 +341,52 @@ systemctl reload fail2ban`} />
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* SMPP API Server */}
+        <TabsContent value="smpp_api" className="mt-4 space-y-4">
+          <div className="p-4 bg-gradient-to-r from-purple-900 to-indigo-900 rounded-xl text-white space-y-2">
+            <div className="flex items-center gap-2">
+              <Wifi className="w-5 h-5" />
+              <h3 className="font-bold">SMPP API Server — Real SMPP Integration</h3>
+            </div>
+            <p className="text-purple-200 text-sm">Node.js/Express server on port 5000. Handles DLR callbacks, real TCP SMPP bind tests, kannel config reload, and client SMPP user provisioning. Required for real Kannel ↔ Base44 integration.</p>
+          </div>
+          <InfoBox color="orange">
+            <p className="font-bold">Set these secrets in Base44 dashboard (Settings → Secrets):</p>
+            <p>• <code>KANNEL_ADMIN_URL</code> = http://YOUR_SERVER_IP:13000</p>
+            <p>• <code>KANNEL_ADMIN_PASS</code> = your kannel admin password</p>
+            <p>• <code>SERVER_API_URL</code> = http://YOUR_SERVER_IP:5000</p>
+            <p>• <code>SERVER_API_TOKEN</code> = CHANGE_THIS_SECRET_TOKEN (same as in .env)</p>
+          </InfoBox>
+          <CodeBlock label="bash setup-smpp-api.sh YOUR_SECRET_TOKEN" code={SMPP_API_SERVER_SCRIPT} color="text-green-400" />
+          <CodeBlock label="MariaDB — smpp_users table + supplier bind columns" code={MARIADB_SMPP_TABLE} color="text-yellow-300" />
+          <InfoBox color="green">
+            <p className="font-bold">After setup — Kannel DLR config (add to kannel.conf smsbox group):</p>
+            <p><code>dlr-url = "http://127.0.0.1:5000/api/dlr?msgid=%i&status=%d&to=%p&from=%A"</code></p>
+            <p className="mt-1 font-bold">Bind Test Flow:</p>
+            <p>Dashboard → SMPP Gateway → click ▶ Test → calls smppManager function → calls /api/smpp/test on Debian → real TCP connect → result saved to DB → green IP shown if bound.</p>
+          </InfoBox>
+          <CodeBlock label="Quick verify commands (on Debian server)" code={`# Check API server
+pm2 list
+pm2 logs net2app-api --lines 20
+curl http://127.0.0.1:5000/health
+
+# Test SMPP TCP connect
+curl -X POST http://127.0.0.1:5000/api/smpp/test \\
+  -H 'Authorization: Bearer YOUR_TOKEN' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"host":"smpp.provider.com","port":2775}'
+
+# Reload Kannel
+curl -X POST http://127.0.0.1:5000/api/smpp/reload \\
+  -H 'Authorization: Bearer YOUR_TOKEN'
+
+# Check smpp_users table
+mysql -u net2app -pTelco1988 net2app -e "SELECT * FROM smpp_users;"
+
+# Kannel admin status
+curl "http://localhost:13000/status?password=CHANGE_ADMIN_PASSWORD" | head -50`} color="text-cyan-300" />
         </TabsContent>
 
         {/* SMTP/Logo */}
