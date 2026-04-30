@@ -1405,6 +1405,8 @@ for DIR in \\
     /var/lib/asterisk/static-http /var/lib/asterisk/res_parking \\
     /var/spool/asterisk /var/spool/asterisk/voicemail \\
     /var/spool/asterisk/voicemail/default \\
+    /var/spool/asterisk/voicemail/default/1234 \\
+    /var/spool/asterisk/voicemail/default/1234/INBOX \\
     /var/spool/asterisk/voicemail/default/1001 \\
     /var/spool/asterisk/voicemail/default/1001/INBOX \\
     /var/spool/asterisk/voicemail/default/1002 \\
@@ -1426,9 +1428,12 @@ ok "Permissions set"
 echo ""; echo "── Running make install ──"
 if [ -n "\$ASTERISK_SRC" ]; then
     cd "\$ASTERISK_SRC"
-    make install 2>&1 | tail -10 && ok "make install done"
+    info "Running: make install..."
+    make install 2>&1 | grep -v "^$" | tail -10 && ok "make install done"
+    info "Running: make samples..."
     make samples 2>&1 | grep -iE "^error" | head -5 || ok "make samples done"
-    make config  2>&1 | tail -5  && ok "make config done"
+    info "Running: make config..."
+    make config  2>&1 | tail -5 && ok "make config done"
     ldconfig && ok "ldconfig updated"
 else
     fail "No asterisk source found in /usr/src — run install_asterisk.sh first"
@@ -1479,6 +1484,10 @@ noload => cdr_tds.so
 noload => cel_tds.so
 noload => cdr_pgsql.so
 noload => cel_pgsql.so
+noload => cdr_sqlite3_custom.so
+noload => cel_sqlite3_custom.so
+noload => cel_custom.so
+noload => cdr_custom.so
 noload => res_snmp.so
 noload => res_odbc.so
 noload => cdr_odbc.so
@@ -1490,66 +1499,66 @@ ok "modules.conf"
 
 cat > /etc/asterisk/manager.conf <<'EOF'
 [general]
-enabled = yes
-port = 5038
-bindaddr = 127.0.0.1
+enabled     = yes
+port        = 5038
+bindaddr    = 127.0.0.1
 displayconnects = yes
 
 [admin]
-secret = Telco1988
-deny = 0.0.0.0/0.0.0.0
-permit = 127.0.0.1/255.255.255.0
-read = all
-write = all
+secret      = Telco1988
+deny        = 0.0.0.0/0.0.0.0
+permit      = 127.0.0.1/255.255.255.0
+read        = all
+write       = all
 
 [net2app]
-secret = Telco1988
-deny = 0.0.0.0/0.0.0.0
-permit = 127.0.0.1/255.255.255.0
-read = all
-write = all
+secret      = Telco1988
+deny        = 0.0.0.0/0.0.0.0
+permit      = 127.0.0.1/255.255.255.0
+read        = all
+write       = all
 EOF
 ok "manager.conf"
 
 cat > /etc/asterisk/sip.conf <<'EOF'
 [general]
-context = default
-bindport = 5060
-bindaddr = 0.0.0.0
-language = en
-disallow = all
-allow = ulaw
-allow = alaw
-allow = gsm
-nat = force_rport,comedia
-qualify = yes
+context         = default
+bindport        = 5060
+bindaddr        = 0.0.0.0
+language        = en
+disallow        = all
+allow           = ulaw
+allow           = alaw
+allow           = gsm
+nat             = force_rport,comedia
+qualify         = yes
 alwaysauthreject = yes
 
 [1001]
-type = friend
-context = default
-host = dynamic
-secret = Telco1988
-callerid = "Extension 1001" <1001>
-disallow = all
-allow = ulaw
-allow = alaw
+type      = friend
+context   = default
+host      = dynamic
+secret    = Telco1988
+callerid  = "Extension 1001" <1001>
+disallow  = all
+allow     = ulaw
+allow     = alaw
 
 [1002]
-type = friend
-context = default
-host = dynamic
-secret = Telco1988
-callerid = "Extension 1002" <1002>
-disallow = all
-allow = ulaw
-allow = alaw
+type      = friend
+context   = default
+host      = dynamic
+secret    = Telco1988
+callerid  = "Extension 1002" <1002>
+disallow  = all
+allow     = ulaw
+allow     = alaw
 EOF
 ok "sip.conf"
 
 cat > /etc/asterisk/extensions.conf <<'EOF'
 [general]
-static = yes
+static       = yes
 writeprotect = no
 
 [default]
@@ -1583,12 +1592,12 @@ ok "logger.conf"
 cat > /etc/asterisk/cdr_mysql.conf <<'EOF'
 [global]
 hostname = localhost
-port = 3306
-dbname = net2app
+port     = 3306
+dbname   = net2app
 password = Telco1988
-user = net2app
-table = cdr
-charset = utf8mb4
+user     = net2app
+table    = cdr
+charset  = utf8mb4
 EOF
 ok "cdr_mysql.conf"
 
@@ -1614,6 +1623,7 @@ ExecReload=/usr/sbin/asterisk -rx "core reload"
 ExecStop=/usr/sbin/asterisk -rx "core stop now"
 Restart=on-failure
 RestartSec=5
+TimeoutStartSec=60
 LimitNOFILE=65536
 
 [Install]
@@ -1633,24 +1643,47 @@ else
     info "Trying direct start..."
     nohup /usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -f >> /var/log/asterisk/startup.log 2>&1 &
     sleep 5
-    pgrep -f "asterisk" && ok "Asterisk running directly" || fail "Asterisk still failing"
+    if pgrep -f "asterisk" > /dev/null; then
+        ok "Asterisk running directly"
+    else
+        fail "Asterisk still failing — check /var/log/asterisk/startup.log"
+    fi
+fi
+
+echo ""; echo "── PM2 Fallback ──"
+pm2 delete asterisk 2>/dev/null || true
+if ! systemctl is-active --quiet asterisk; then
+    pm2 start /usr/sbin/asterisk --name asterisk --interpreter none -- -C /etc/asterisk/asterisk.conf -f
+    pm2 save && ok "Asterisk managed by PM2"
+else
+    ok "Asterisk managed by systemd (no PM2 needed)"
 fi
 
 echo ""; echo "── Final Tests ──"
 sleep 2
 /usr/sbin/asterisk -rx "core show version" 2>/dev/null && ok "CLI working" || fail "CLI not working"
+/usr/sbin/asterisk -rx "module show"       2>/dev/null | tail -1 && ok "Modules loaded" || true
 /usr/sbin/asterisk -rx "sip show peers"    2>/dev/null && ok "SIP working" || true
+echo ""; echo "── Ports ──"
 ss -tlunp | grep -E "5060|5038"
+echo ""; echo "── AMI Test ──"
+sleep 1
 echo -e "Action: Login\\r\\nUsername: admin\\r\\nSecret: Telco1988\\r\\n\\r\\n" | nc -w3 127.0.0.1 5038 2>/dev/null | head -5
 
 echo ""; echo "════════════════════════════════════════"
 echo "  ASTERISK FIX COMPLETE"
 echo "════════════════════════════════════════"
+echo "  Binary:  /usr/sbin/asterisk"
+echo "  Version: \$(asterisk -V 2>/dev/null)"
+echo ""
 echo "  systemctl status asterisk"
 echo "  asterisk -rvvv"
 echo "  asterisk -rx 'core show version'"
 echo "  asterisk -rx 'sip show peers'"
-echo "  echo -e 'Action: Login\\r\\nUsername: admin\\r\\nSecret: Telco1988\\r\\n\\r\\n' | nc 127.0.0.1 5038"
+echo "  asterisk -rx 'core show channels'"
+echo ""
+echo "  AMI: echo -e 'Action: Login\\r\\nUsername: admin\\r\\nSecret: Telco1988\\r\\n\\r\\n' | nc 127.0.0.1 5038"
+echo "  Log: tail -f /var/log/asterisk/messages"
 echo "════════════════════════════════════════"`,
 
   fix_routes: `#!/bin/bash
