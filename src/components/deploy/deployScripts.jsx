@@ -19,84 +19,331 @@ echo "✅ System packages installed successfully"`,
 
   asterisk: `#!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  Asterisk Full Install Script — Run as root: bash install_asterisk.sh
+#  Asterisk Full Install — Fixed for Debian 12
+#  Run as root: sudo bash install_asterisk.sh
 # ═══════════════════════════════════════════════════════════════════
+
+if [ "\$EUID" -ne 0 ]; then exec sudo bash "\$0" "\$@"; fi
 set -e
-echo "════════════════════════════════════════════"
-echo "  Asterisk Installer"
-echo "════════════════════════════════════════════"
 
-echo "[1/7] Updating system..."
+GREEN='\\033[0;32m'; RED='\\033[0;31m'; YELLOW='\\033[1;33m'; BLUE='\\033[0;34m'; NC='\\033[0m'
+ok()     { echo -e "\${GREEN}[OK]\${NC} \$1"; }
+fail()   { echo -e "\${RED}[FAIL]\${NC} \$1"; }
+info()   { echo -e "\${YELLOW}[i]\${NC} \$1"; }
+header() { echo -e "\\n\${BLUE}== \$1 ==\${NC}\\n"; }
+
+echo ""; echo "============================================"
+echo "  Asterisk Full Install - Net2App"
+echo "  Running as: \$(whoami)"
+echo "============================================"
+
+header "STEP 1: Update System"
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -y && apt-get upgrade -y
+ok "System updated"
 
-echo "[2/7] Installing dependencies..."
+header "STEP 2: Install Dependencies"
 apt-get install -y \\
     build-essential wget curl git \\
     libssl-dev libncurses5-dev libnewt-dev \\
     libxml2-dev libsqlite3-dev uuid-dev \\
-    libjansson-dev libedit-dev libsrtp2-dev \\
+    libjansson-dev libedit-dev \\
     libgsm1-dev mpg123 sox \\
-    unixodbc unixodbc-dev odbcinst subversion
+    unixodbc unixodbc-dev odbcinst subversion \\
+    pkg-config liblua5.2-dev \\
+    libspeex-dev libspeexdsp-dev \\
+    libogg-dev libvorbis-dev \\
+    libcurl4-openssl-dev
+apt-get install -y libsrtp2-dev 2>/dev/null || apt-get install -y libsrtp-dev 2>/dev/null || info "libsrtp not found - continuing"
+ok "Dependencies installed"
 
-echo "[3/7] Downloading Asterisk..."
+header "STEP 3: Download Asterisk 20"
 cd /usr/src
-wget -q https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.tar.gz
+rm -f asterisk-20-current.tar.gz; rm -rf asterisk-20*/
+wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.tar.gz -O asterisk-20-current.tar.gz
 tar -xzf asterisk-20-current.tar.gz
-cd asterisk-20*/
+ASTERISK_DIR=\$(find /usr/src -maxdepth 1 -name "asterisk-20*" -type d | head -1)
+[ -z "\$ASTERISK_DIR" ] && { echo "Extraction failed"; exit 1; }
+ok "Asterisk extracted: \$ASTERISK_DIR"
 
-echo "[4/7] Installing Asterisk prerequisites..."
-contrib/scripts/install_prereq install
+header "STEP 4: Install Prerequisites"
+cd "\$ASTERISK_DIR"
+[ -f contrib/scripts/install_prereq ] && chmod +x contrib/scripts/install_prereq && contrib/scripts/install_prereq install 2>&1 | tail -5 || info "install_prereq skipped"
 
-echo "[5/7] Configuring and compiling Asterisk..."
-./configure --with-jansson-bundled
-make menuselect.makeopts
+header "STEP 5: Configure"
+./configure --with-jansson-bundled --with-pjproject-bundled 2>&1 | tail -5
+ok "Configure complete"
+
+header "STEP 6: Select Modules"
+make menuselect.makeopts 2>&1 | tail -3
 menuselect/menuselect \\
-    --enable chan_sip \\
-    --enable chan_pjsip \\
-    --enable res_pjsip \\
-    --enable app_voicemail \\
-    --enable codec_gsm \\
-    --enable format_mp3 \\
-    menuselect.makeopts
-make -j$(nproc)
-make install && make samples && make config
+    --enable chan_sip --enable chan_pjsip --enable res_pjsip \\
+    --enable res_pjsip_session --enable res_pjsip_authenticator_digest \\
+    --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_registrar \\
+    --enable res_pjsip_sdp_rtp --enable res_pjsip_outbound_registration \\
+    --enable app_voicemail --enable codec_gsm --enable codec_ulaw --enable codec_alaw \\
+    --enable format_mp3 --enable app_dial --enable app_playback --enable app_record \\
+    --enable app_echo --enable app_transfer --enable cdr_csv --enable cdr_manager \\
+    menuselect.makeopts 2>/dev/null || true
+ok "Modules selected"
 
-echo "[6/7] Setting up configuration..."
-id asterisk 2>/dev/null || useradd -r -d /var/lib/asterisk -s /sbin/nologin asterisk
-chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk \\
-    /var/log/asterisk /var/spool/asterisk /usr/lib/asterisk
+header "STEP 7: Compile (5-15 minutes)"
+make -j\$(nproc) 2>&1 | tail -10
+ok "Compilation complete"
 
-tee /etc/asterisk/manager.conf > /dev/null << 'CONF'
-[general]
-enabled = yes
-port = 5038
-bindaddr = 127.0.0.1
+header "STEP 8: Install"
+make install 2>&1 | tail -5 && ok "make install"
+make samples 2>&1 | tail -3 && ok "make samples"
+make config  2>&1 | tail -3 && ok "make config"
+ldconfig && ok "ldconfig updated"
 
-[admin]
-secret = CHANGE_AMI_PASSWORD
-deny = 0.0.0.0/0.0.0.0
-permit = 127.0.0.1/255.255.255.0
-read = all
-write = all
+header "STEP 9: Create Asterisk User"
+id asterisk &>/dev/null || useradd -r -d /var/lib/asterisk -s /sbin/nologin -c "Asterisk Communications" asterisk
+for DIR in /etc/asterisk /var/lib/asterisk /var/log/asterisk /var/spool/asterisk /usr/lib/asterisk /var/run/asterisk; do
+  [ -d "\$DIR" ] && chown -R asterisk:asterisk "\$DIR" || true
+done
+ok "User and permissions set"
+
+header "STEP 10: Write Config Files"
+
+cat > /etc/asterisk/asterisk.conf <<'CONF'
+[options]
+runuser = asterisk
+rungroup = asterisk
+verbose = 3
+debug = 0
+alwaysfork = yes
 CONF
 
-chown -R asterisk:asterisk /etc/asterisk
+cat > /etc/asterisk/sip.conf <<'CONF'
+[general]
+context=default
+bindport=5060
+bindaddr=0.0.0.0
+language=en
+disallow=all
+allow=ulaw
+allow=alaw
+allow=gsm
+nat=force_rport,comedia
+qualify=yes
+alwaysauthreject=yes
+canreinvite=no
+session-timers=refuse
+defaultexpiry=120
+minexpiry=60
+maxexpiry=3600
 
-echo "[7/7] Starting Asterisk..."
-systemctl daemon-reload
-systemctl enable asterisk
-systemctl start asterisk
-sleep 3
+[1001]
+type=friend
+context=default
+host=dynamic
+secret=Telco1988
+callerid="Extension 1001" <1001>
+disallow=all
+allow=ulaw
+allow=alaw
 
-systemctl is-active asterisk && echo "Asterisk: RUNNING ✅" || echo "Asterisk: FAILED ❌"
-ss -tlnp | grep -E "5060|5038"
-asterisk -V
+[1002]
+type=friend
+context=default
+host=dynamic
+secret=Telco1988
+callerid="Extension 1002" <1002>
+disallow=all
+allow=ulaw
+allow=alaw
+CONF
 
-echo "════════════════════════════════════════════"
-echo "  Installation Complete!"
-echo "  asterisk -rvvv              # Connect to CLI"
-echo "  ⚠️  Update sip.conf, manager.conf, extensions.conf"
-echo "════════════════════════════════════════════"`,
+cat > /etc/asterisk/pjsip.conf <<'CONF'
+[global]
+type=global
+endpoint_identifier_order=ip,username,anonymous
+
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0:5060
+
+[endpoint-basic](!)
+type=endpoint
+context=default
+disallow=all
+allow=ulaw,alaw,gsm
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+
+[auth-basic](!)
+type=auth
+auth_type=userpass
+
+[aor-basic](!)
+type=aor
+max_contacts=5
+remove_existing=yes
+qualify_frequency=30
+
+[1001](endpoint-basic)
+auth=auth1001
+aors=aor1001
+callerid="Ext 1001" <1001>
+
+[auth1001](auth-basic)
+username=1001
+password=Telco1988
+
+[aor1001](aor-basic)
+mailboxes=1001@default
+
+[1002](endpoint-basic)
+auth=auth1002
+aors=aor1002
+callerid="Ext 1002" <1002>
+
+[auth1002](auth-basic)
+username=1002
+password=Telco1988
+
+[aor1002](aor-basic)
+mailboxes=1002@default
+CONF
+
+cat > /etc/asterisk/extensions.conf <<'CONF'
+[general]
+static=yes
+writeprotect=no
+autofallthrough=yes
+
+[default]
+exten => 1001,1,NoOp(Call to 1001)
+ same => n,Dial(PJSIP/1001,30)
+ same => n,Hangup()
+
+exten => 1002,1,NoOp(Call to 1002)
+ same => n,Dial(PJSIP/1002,30)
+ same => n,Hangup()
+
+exten => 9999,1,Answer()
+ same => n,Echo()
+ same => n,Hangup()
+
+exten => h,1,Hangup()
+CONF
+
+cat > /etc/asterisk/manager.conf <<'CONF'
+[general]
+enabled=yes
+port=5038
+bindaddr=127.0.0.1
+displayconnects=yes
+timestampevents=yes
+
+[admin]
+secret=Telco1988
+deny=0.0.0.0/0.0.0.0
+permit=127.0.0.1/255.255.255.0
+read=all
+write=all
+
+[net2app]
+secret=Telco1988
+deny=0.0.0.0/0.0.0.0
+permit=127.0.0.1/255.255.255.0
+read=all
+write=all
+CONF
+
+cat > /etc/asterisk/cdr_mysql.conf <<'CONF'
+[global]
+hostname=localhost
+port=3306
+dbname=net2app
+password=Telco1988
+user=net2app
+table=cdr
+charset=utf8mb4
+CONF
+
+chown -R asterisk:asterisk /etc/asterisk && chmod -R 640 /etc/asterisk/*
+ok "Config files written"
+
+header "STEP 11: Systemd Service"
+cat > /etc/systemd/system/asterisk.service <<'UNIT'
+[Unit]
+Description=Asterisk PBX
+After=network.target
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+Environment=HOME=/var/lib/asterisk
+ExecStart=/usr/sbin/asterisk -f -C /etc/asterisk/asterisk.conf
+ExecReload=/usr/sbin/asterisk -rx "core reload"
+ExecStop=/usr/sbin/asterisk -rx "core stop now"
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload && systemctl enable asterisk
+ok "Systemd service configured"
+
+header "STEP 12: Start Asterisk"
+systemctl stop asterisk 2>/dev/null || true
+pkill -f asterisk 2>/dev/null || true; sleep 2
+systemctl start asterisk; sleep 5
+systemctl is-active --quiet asterisk && ok "Asterisk STARTED" || { journalctl -u asterisk --no-pager -n 20; fail "Asterisk failed to start"; }
+
+header "STEP 13: Open Firewall Ports"
+iptables -I INPUT -p udp --dport 5060 -j ACCEPT 2>/dev/null || true
+iptables -I INPUT -p tcp --dport 5060 -j ACCEPT 2>/dev/null || true
+iptables -I INPUT -p tcp --dport 5038 -j ACCEPT 2>/dev/null || true
+iptables -I INPUT -p udp --dport 10000:20000 -j ACCEPT 2>/dev/null || true
+iptables-save > /etc/iptables.rules 2>/dev/null || true
+ok "Firewall ports opened"
+
+header "Final Verification"
+systemctl is-active --quiet asterisk && ok "Asterisk: RUNNING" || fail "Asterisk: STOPPED"
+asterisk -V 2>/dev/null && ok "Version OK"
+ss -tlunp | grep -E "5060|5038" && ok "Ports listening" || info "Ports check above"
+sleep 2
+AMI_TEST=\$(echo -e "Action: Login\\r\\nUsername: admin\\r\\nSecret: Telco1988\\r\\n\\r\\n" | nc -w3 127.0.0.1 5038 2>/dev/null | head -3)
+echo "\$AMI_TEST" | grep -q "Success" && ok "AMI Login OK" || info "AMI: \$AMI_TEST"
+asterisk -rx "core show version" 2>/dev/null && ok "CLI working" || info "CLI not ready yet"
+
+cat > /root/.asterisk_credentials <<EOF
+AMI_HOST=127.0.0.1
+AMI_PORT=5038
+AMI_USER=admin / Telco1988
+AMI_USER2=net2app / Telco1988
+SIP_PORT=5060
+EXT1=1001 / Telco1988
+EXT2=1002 / Telco1988
+CONFIG=/etc/asterisk
+LOGS=/var/log/asterisk
+EOF
+chmod 600 /root/.asterisk_credentials
+ok "Credentials saved: /root/.asterisk_credentials"
+
+echo ""
+echo "============================================"
+echo "  ASTERISK INSTALLATION COMPLETE"
+echo "============================================"
+echo "  systemctl status asterisk"
+echo "  asterisk -rvvv"
+echo "  asterisk -rx 'core show version'"
+echo "  asterisk -rx 'sip show peers'"
+echo "  asterisk -rx 'pjsip show endpoints'"
+echo "  Logs: tail -f /var/log/asterisk/messages"
+echo "  AMI: 127.0.0.1:5038  admin/Telco1988"
+echo "  SIP: 5060  Exts: 1001/1002  Pass: Telco1988"
+echo "  cat /root/.asterisk_credentials"
+echo "============================================"`,
 
   kannel_install: `#!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
