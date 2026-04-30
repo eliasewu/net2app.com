@@ -6,16 +6,18 @@ import { Terminal, Copy, Check, ExternalLink, ChevronDown, ChevronUp } from "luc
 import { toast } from "sonner";
 
 const DEPLOY_STEPS = [
-  { num: 1, label: "System Update", desc: "apt-get update, upgrade, install essential packages" },
-  { num: 2, label: "MariaDB", desc: "Install DB server, create net2app database & user" },
-  { num: 3, label: "Asterisk 20", desc: "Install VoIP/SIP server and enable service" },
-  { num: 4, label: "Kannel SMS Gateway", desc: "Install Kannel, write default config, start service" },
-  { num: 5, label: "Node.js 20 LTS", desc: "Install via NodeSource repository" },
-  { num: 6, label: "PM2 Process Manager", desc: "Install globally, configure systemd startup" },
-  { num: 7, label: "Nginx", desc: "Install, configure reverse proxy → port 3000" },
-  { num: 8, label: "UFW Firewall", desc: "Open ports: 22, 80, 443, 2775 (SMPP), 5060 (SIP), 13013 (Kannel)" },
-  { num: 9, label: "Fail2Ban", desc: "Enable brute-force protection" },
-  { num: 10, label: "App Directories & Config", desc: "Create /opt/net2app, write .env with DB and service settings" },
+  { num: 1,  label: "System Update",            desc: "apt-get update, upgrade, install build-essential, git, curl, wget, vim, net-tools" },
+  { num: 2,  label: "MariaDB",                  desc: "Install DB server, create net2app global database, user, and all schema tables" },
+  { num: 3,  label: "Kannel SMS Gateway",        desc: "Install Kannel bearerbox + smsbox, write /etc/kannel/kannel.conf, create systemd services" },
+  { num: 4,  label: "Asterisk 20 LTS",           desc: "Compile from source, configure chan_sip + PJSIP + AMI, enable CDR MySQL logging" },
+  { num: 5,  label: "Node.js 20 LTS",            desc: "Install via NodeSource repository — required for frontend build" },
+  { num: 6,  label: "PM2 Process Manager",        desc: "Install globally, configure systemd startup for Node backend processes" },
+  { num: 7,  label: "Nginx",                     desc: "Install, configure SPA reverse proxy for admin panel + per-tenant HTTP panels (ports 4000–6000)" },
+  { num: 8,  label: "UFW Firewall",              desc: "Open: SSH 22, HTTP 80/443, SIP 5060, RTP 10000–20000, SMPP 9095–9200, tenant ports 4000–6000, Kannel localhost only" },
+  { num: 9,  label: "Fail2Ban",                  desc: "Enable brute-force protection for SSH + Asterisk SIP authentication" },
+  { num: 10, label: "Per-Tenant DB Provisioning", desc: "Run create_tenant.sh per tenant — creates isolated DB, filtered views, wallet & api_keys tables" },
+  { num: 11, label: "Billing Triggers",           desc: "Apply billing-type aware MySQL triggers on sms_log for real-time billing_summary updates" },
+  { num: 12, label: "App Clone & Build",          desc: "Clone net2app from GitHub, npm install, npm run build → copy dist/ to /var/www/html" },
 ];
 
 const ONE_LINE = "bash <(curl -s https://raw.githubusercontent.com/eliasewu/net2app.com/main/deploy.sh)";
@@ -38,7 +40,8 @@ export default function DeployScriptViewer() {
           <CardTitle className="text-sm flex items-center gap-2">
             <Terminal className="w-4 h-4 text-green-600" />
             Debian Auto-Deploy Script
-            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">10 Steps</Badge>
+            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">12 Steps</Badge>
+            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">v2.1.0</Badge>
           </CardTitle>
           <div className="flex gap-2">
             <a
@@ -98,9 +101,10 @@ export default function DeployScriptViewer() {
         {/* Credentials summary */}
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-1">
           <p className="font-semibold text-amber-800">📋 Default Credentials (change after deploy!)</p>
-          <p className="text-amber-700 font-mono">DB: net2app / Pass: Net2app@2024!</p>
-          <p className="text-amber-700 font-mono">Kannel Admin: net2app123</p>
-          <p className="text-amber-700 font-mono">App Dir: /opt/net2app</p>
+          <p className="text-amber-700 font-mono">DB User: net2app / Pass: STRONG_PASSWORD_CHANGE_ME</p>
+          <p className="text-amber-700 font-mono">Kannel Admin PW: CHANGE_ADMIN_PASSWORD</p>
+          <p className="text-amber-700 font-mono">Asterisk AMI PW: CHANGE_AMI_PASSWORD</p>
+          <p className="text-amber-700 font-mono">App Dir: /opt/net2app | Build: /var/www/html</p>
         </div>
       </CardContent>
     </Card>
