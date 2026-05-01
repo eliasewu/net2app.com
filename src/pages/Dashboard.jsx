@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, Users, Building2, Route, CheckCircle2, XCircle, Clock, Activity, Server, Phone, Send, Mic, Wifi } from "lucide-react";
 import DeploymentStatus from "@/components/dashboard/DeploymentStatus";
+import SmsVolumeTrend from "@/components/dashboard/SmsVolumeTrend";
 import { format } from "date-fns";
 
 export default function Dashboard() {
@@ -171,6 +172,9 @@ export default function Dashboard() {
           </Card>
         ))}
       </div>
+
+      {/* SMS Volume Trend */}
+      <SmsVolumeTrend smsLogs={smsLogs} clients={clients} />
 
       {/* Deployment Status */}
       <DeploymentStatus />

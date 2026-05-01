@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil, Trash2, Mail } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 
 const emptyClient = {
@@ -46,7 +46,27 @@ export default function Clients() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [form, setForm] = useState(emptyClient);
+  const [bindLoading, setBindLoading] = useState({});
+  const [bindStatus, setBindStatus] = useState({});
   const qc = useQueryClient();
+
+  const refreshBindStatus = async (client) => {
+    if (client.connection_type !== 'SMPP') return;
+    setBindLoading(p => ({ ...p, [client.id]: true }));
+    try {
+      const res = await base44.functions.invoke('smppManager', {
+        action: 'status',
+        client_id: client.id,
+        smpp_username: client.smpp_username,
+      });
+      const data = res?.data || res;
+      const bound = data?.clients?.some?.(c => c.system_id === client.smpp_username && c.bound) || false;
+      setBindStatus(p => ({ ...p, [client.id]: bound ? 'bound' : 'unbound' }));
+    } catch {
+      setBindStatus(p => ({ ...p, [client.id]: 'error' }));
+    }
+    setBindLoading(p => ({ ...p, [client.id]: false }));
+  };
 
   const { data: clients = [], isLoading } = useQuery({
     queryKey: ['clients'],
@@ -120,6 +140,7 @@ export default function Clients() {
                 <TableHead>TPS</TableHead>
                 <TableHead>Balance</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>SMPP Bind</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -138,6 +159,19 @@ export default function Clients() {
                   <TableCell>{c.tps_limit}</TableCell>
                   <TableCell className="font-mono">{c.currency} {c.balance?.toFixed(2)}</TableCell>
                   <TableCell><StatusBadge status={c.status} /></TableCell>
+                  <TableCell>
+                    {c.connection_type === 'SMPP' ? (
+                      <div className="flex items-center gap-1.5">
+                        {bindStatus[c.id] === 'bound' && <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><Wifi className="w-3 h-3" />Bound</span>}
+                        {bindStatus[c.id] === 'unbound' && <span className="flex items-center gap-1 text-xs text-red-500 font-medium"><WifiOff className="w-3 h-3" />Unbound</span>}
+                        {bindStatus[c.id] === 'error' && <span className="text-xs text-yellow-600">Error</span>}
+                        {!bindStatus[c.id] && <span className="text-xs text-muted-foreground">—</span>}
+                        <button onClick={() => refreshBindStatus(c)} disabled={bindLoading[c.id]} className="ml-1 text-muted-foreground hover:text-foreground transition-colors">
+                          <RefreshCw className={`w-3 h-3 ${bindLoading[c.id] ? 'animate-spin' : ''}`} />
+                        </button>
+                      </div>
+                    ) : <span className="text-xs text-muted-foreground">HTTP</span>}
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="icon" onClick={() => openEdit(c)}><Pencil className="w-4 h-4" /></Button>
@@ -147,7 +181,7 @@ export default function Clients() {
                 </TableRow>
               ))}
               {clients.length === 0 && (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-12">No clients yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-12">No clients yet</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
