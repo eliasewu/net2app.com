@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Terminal, Copy, Check, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { Terminal, Copy, Check, ExternalLink, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 const DEPLOY_STEPS = [
@@ -97,6 +97,32 @@ export default function DeployScriptViewer() {
             ))}
           </div>
         )}
+
+        {/* Missing file warning */}
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs space-y-2">
+          <p className="font-semibold text-red-800 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" />deploy.sh not found in GitHub repo — you must push it first</p>
+          <p className="text-red-700">The file <code className="bg-red-100 px-1 rounded">deploy.sh</code> must exist at the root of <code className="bg-red-100 px-1 rounded">eliasewu/net2app.com</code>. Run these commands on your local machine:</p>
+          <div className="bg-gray-900 rounded p-2 space-y-1">
+            {[
+              "git clone https://github.com/eliasewu/net2app.com.git",
+              "cd net2app.com",
+              "# paste the deploy.sh content (copy from Deploy Guide → GitHub Deploy tab)",
+              "git add deploy.sh",
+              'git commit -m "Add deploy.sh"',
+              "git push origin main",
+            ].map((line, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <code className={`font-mono text-[10px] ${line.startsWith('#') ? 'text-gray-500' : 'text-green-400'}`}>{line}</code>
+                {!line.startsWith('#') && (
+                  <button onClick={() => { navigator.clipboard.writeText(line); toast.success("Copied"); }} className="text-gray-500 hover:text-white shrink-0">
+                    <Copy className="w-2.5 h-2.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-red-700">After pushing, the one-line command above will work from any server.</p>
+        </div>
 
         {/* Credentials summary */}
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-1">
