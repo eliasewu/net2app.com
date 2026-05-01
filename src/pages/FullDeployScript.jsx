@@ -21,10 +21,10 @@ const buildScript = () => [
   'set -e',
   '',
   'GREEN="\\033[0;32m"; RED="\\033[0;31m"; YELLOW="\\033[1;33m"; BLUE="\\033[0;34m"; NC="\\033[0m"',
-  'ok()     { echo -e "${GREEN}[OK]${NC} $1"; }',
-  'fail()   { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }',
-  'info()   { echo -e "${YELLOW}[i]${NC} $1"; }',
-  'header() { echo -e "\\n${BLUE}══ $1 ══${NC}\\n"; }',
+  'ok()     { echo -e "\\${GREEN}[OK]\\${NC} $1"; }',
+  'fail()   { echo -e "\\${RED}[FAIL]\\${NC} $1"; exit 1; }',
+  'info()   { echo -e "\\${YELLOW}[i]\\${NC} $1"; }',
+  'header() { echo -e "\\n\\${BLUE}══ $1 ══\\${NC}\\n"; }',
   '',
   '# ── CONFIG — change before running ─────────────────────────────────',
   'DB_ROOT_PASS="Telco1988"',
@@ -589,6 +589,76 @@ export default function FullDeployScript() {
               <li>DLR callbacks update SMS log statuses in real-time</li>
               <li>Clients/Suppliers auto-sync to Kannel on every save</li>
             </ul>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Local Frontend Connection Guide */}
+      <Card className="border-purple-200 bg-purple-50">
+        <CardContent className="p-4 space-y-3">
+          <p className="text-sm font-bold text-purple-900">How to Connect Your Local Frontend to the Debian Server</p>
+          <p className="text-xs text-purple-700">The Base44 frontend talks to the Debian server via the SMPP API (port 5000). Follow these steps to make all action buttons work:</p>
+          <div className="space-y-3">
+            {[
+              {
+                step: "1",
+                title: "SSH into server & verify API is running",
+                cmds: [
+                  `ssh root@${serverIp}`,
+                  "pm2 status",
+                  "curl http://127.0.0.1:5000/health",
+                ],
+              },
+              {
+                step: "2",
+                title: "Open port 5000 for your IP (or use a tunnel)",
+                cmds: [
+                  `ufw allow from YOUR_LOCAL_IP to any port 5000 comment "Base44 API access"`,
+                  "# OR use SSH tunnel (more secure):",
+                  `ssh -L 5000:127.0.0.1:5000 root@${serverIp} -N`,
+                  "# Then set SERVER_API_URL=http://127.0.0.1:5000 in Base44 secrets",
+                ],
+              },
+              {
+                step: "3",
+                title: "Set secrets in Base44 Dashboard → Settings → Secrets",
+                cmds: [
+                  `SERVER_API_URL = http://${serverIp}:5000`,
+                  `SERVER_API_TOKEN = ${apiToken}`,
+                  `KANNEL_ADMIN_URL = http://${serverIp}:13000`,
+                  `KANNEL_ADMIN_PASS = ${kannelPass}`,
+                ],
+              },
+              {
+                step: "4",
+                title: "Verify from Base44 — SMPP Gateway page → click 'Reload Kannel'",
+                cmds: [
+                  "Expected response: { ok: true, message: 'Kannel reloaded' }",
+                  "If 401: API_TOKEN mismatch — recheck secret",
+                  "If ECONNREFUSED: API server not running — run: pm2 restart net2app-api",
+                  "If timeout: port 5000 blocked — check UFW / firewall",
+                ],
+              },
+            ].map(({ step, title, cmds }) => (
+              <div key={step} className="bg-white rounded-lg border border-purple-200 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{step}</span>
+                  <p className="text-xs font-semibold text-purple-900">{title}</p>
+                </div>
+                <div className="space-y-1">
+                  {cmds.map((cmd, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-gray-900 rounded px-2 py-1">
+                      <code className="text-xs text-green-400 font-mono flex-1">{cmd}</code>
+                      {!cmd.startsWith('#') && !cmd.startsWith('Expected') && !cmd.startsWith('If ') && (
+                        <button onClick={() => copyLine(cmd)} className="text-gray-500 hover:text-white shrink-0">
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

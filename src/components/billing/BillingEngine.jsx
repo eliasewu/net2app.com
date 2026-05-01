@@ -146,27 +146,97 @@ export default function BillingEngine() {
     toast.success(`Invoice sent to ${client.email}`);
   };
 
-  const exportMonthlyCsv = () => {
+  const [csvDialog, setCsvDialog] = useState(false);
+  const [csvRange, setCsvRange] = useState(() => {
     const now = new Date();
-    const monthLabel = now.toISOString().slice(0, 7); // YYYY-MM
-    const rows = [
-      ['Client Name', 'Email', 'Billing Type', 'Total SMS', 'Billable SMS', 'Delivered', 'Failed', 'Revenue', 'Cost', 'Margin', 'Balance', 'Credit Limit', 'Currency'],
-      ...clientStats.map(c => [
-        c.name, c.email || '', c.billing_type || 'submit',
-        c.totalLogs, c.billable, c.delivered, c.failed,
-        c.revenue.toFixed(4), c.cost.toFixed(4), c.margin.toFixed(4),
-        (c.balance || 0).toFixed(2), c.credit_limit || 0, c.currency || 'USD'
-      ])
+    return {
+      start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0],
+      end: now.toISOString().split('T')[0],
+    };
+  });
+
+  const exportMonthlyCsv = () => {
+    const { start, end } = csvRange;
+    const label = start.slice(0, 7);
+
+    // Per-client summary sheet
+    const summaryRows = [
+      ['=== CLIENT MONTHLY USAGE & COST REPORT ==='],
+      [`Period: ${start} to ${end}`, `Generated: ${new Date().toISOString()}`],
+      [],
+      ['Client Name', 'Email', 'Billing Type', 'Force DLR', 'Total SMS', 'Billable SMS', 'Delivered', 'Failed', 'Delivery Rate %', 'Revenue', 'Cost', 'Margin', 'Balance', 'Credit Limit', 'Currency'],
+      ...clientStats.map(c => {
+        const dlrRate = c.totalLogs > 0 ? ((c.delivered / c.totalLogs) * 100).toFixed(1) : '0.0';
+        return [
+          c.name, c.email || '', c.billing_type || 'submit', c.force_dlr ? 'Yes' : 'No',
+          c.totalLogs, c.billable, c.delivered, c.failed, dlrRate + '%',
+          c.revenue.toFixed(4), c.cost.toFixed(4), c.margin.toFixed(4),
+          (c.balance || 0).toFixed(2), c.credit_limit || 0, c.currency || 'USD'
+        ];
+      }),
+      [],
+      ['TOTALS', '', '', '', '', '', '', '', '',
+        clientStats.reduce((s, c) => s + c.revenue, 0).toFixed(4),
+        clientStats.reduce((s, c) => s + c.cost, 0).toFixed(4),
+        clientStats.reduce((s, c) => s + c.margin, 0).toFixed(4),
+      ],
     ];
-    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+
+    // Per-client destination breakdown
+    const periodLogs = smsLogs.filter(l => {
+      const d = (l.created_date || l.submit_time || '').slice(0, 10);
+      return d >= start && d <= end;
+    });
+
+    const destRows = [
+      [],
+      ['=== DESTINATION BREAKDOWN BY CLIENT ==='],
+      ['Client Name', 'Country', 'Network', 'MCC', 'MNC', 'SMS Count', 'Delivered', 'Failed', 'Revenue', 'Cost', 'Margin'],
+    ];
+    clientStats.forEach(c => {
+      const clientLogs = periodLogs.filter(l => l.client_id === c.id);
+      const destMap = {};
+      clientLogs.forEach(l => {
+        const key = `${l.country || 'Unknown'}||${l.network || ''}||${l.mcc || ''}||${l.mnc || ''}`;
+        if (!destMap[key]) destMap[key] = { count: 0, delivered: 0, failed: 0, revenue: 0, cost: 0 };
+        destMap[key].count++;
+        if (l.status === 'delivered') destMap[key].delivered++;
+        if (['failed', 'rejected'].includes(l.status)) destMap[key].failed++;
+        destMap[key].revenue += l.sell_rate || 0;
+        destMap[key].cost += l.cost || 0;
+      });
+      Object.entries(destMap).forEach(([key, d]) => {
+        const [country, network, mcc, mnc] = key.split('||');
+        destRows.push([
+          c.name, country, network, mcc, mnc,
+          d.count, d.delivered, d.failed,
+          d.revenue.toFixed(4), d.cost.toFixed(4), (d.revenue - d.cost).toFixed(4)
+        ]);
+      });
+    });
+
+    // Supplier cost sheet
+    const supplierRows = [
+      [],
+      ['=== SUPPLIER COST SUMMARY ==='],
+      ['Supplier Name', 'Connection Type', 'Total Routed', 'Billable', 'Failed (not charged)', 'Total Cost USD'],
+      ...supplierStats.map(s => [s.name, s.connection_type || 'HTTP', s.sent, s.billable, s.failed, s.cost.toFixed(4)]),
+    ];
+
+    const allRows = [...summaryRows, ...destRows, ...supplierRows];
+    const csv = allRows.map(r =>
+      Array.isArray(r) ? r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') : ''
+    ).join('\n');
+
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `monthly-usage-${monthLabel}.csv`;
+    a.download = `net2app-cost-report-${label}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success(`Exported ${clientStats.length} clients to CSV`);
+    setCsvDialog(false);
+    toast.success(`Cost report exported — ${clientStats.length} clients, ${periodLogs.length} SMS logs`);
   };
 
   const adjustBalance = (client, amount) => {
@@ -199,8 +269,8 @@ export default function BillingEngine() {
             <TabsTrigger value="suppliers">Supplier Costs</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
           </TabsList>
-          <Button size="sm" variant="outline" onClick={exportMonthlyCsv} className="gap-1.5 text-xs">
-            <Download className="w-3.5 h-3.5" />Export Monthly CSV
+          <Button size="sm" variant="outline" onClick={() => setCsvDialog(true)} className="gap-1.5 text-xs">
+            <Download className="w-3.5 h-3.5" />Export Cost Report (CSV)
           </Button>
         </div>
 
@@ -349,6 +419,38 @@ export default function BillingEngine() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* CSV Export Dialog */}
+      <Dialog open={csvDialog} onOpenChange={setCsvDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Download className="w-4 h-4" />Export Cost Report</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">Exports a full CSV with: client usage summary, destination breakdown per client, and supplier cost totals.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Start Date</Label>
+                <Input type="date" value={csvRange.start} onChange={e => setCsvRange(p => ({ ...p, start: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>End Date</Label>
+                <Input type="date" value={csvRange.end} onChange={e => setCsvRange(p => ({ ...p, end: e.target.value }))} />
+              </div>
+            </div>
+            <div className="bg-muted rounded-lg p-3 text-xs space-y-1 text-muted-foreground">
+              <p className="font-semibold text-foreground">Report includes 3 sections:</p>
+              <p>1. Client billing summary (revenue, cost, margin, DLR%)</p>
+              <p>2. Destination breakdown per client (country/MCC/MNC)</p>
+              <p>3. Supplier cost totals</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCsvDialog(false)}>Cancel</Button>
+            <Button onClick={exportMonthlyCsv} className="gap-1.5">
+              <Download className="w-4 h-4" />Download CSV
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Invoice Dialog */}
       <Dialog open={invoiceDialog} onOpenChange={setInvoiceDialog}>
