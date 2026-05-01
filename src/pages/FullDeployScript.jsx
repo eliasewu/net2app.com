@@ -446,6 +446,9 @@ export default function FullDeployScript() {
   const [stepsOpen, setStepsOpen] = useState(true);
   const [pushing, setPushing] = useState(false);
   const [pushed, setPushed] = useState(false);
+  const [serverIp, setServerIp] = useState("192.95.36.154");
+  const [apiToken, setApiToken] = useState("CHANGE_THIS_SECRET_TOKEN");
+  const [kannelPass, setKannelPass] = useState("CHANGE_ADMIN_PASSWORD");
 
   const SCRIPT = buildScript();
 
@@ -523,30 +526,70 @@ export default function FullDeployScript() {
         </CardContent>
       </Card>
 
-      {/* Connectivity guide */}
+      {/* Connectivity guide — interactive */}
       <Card className="border-blue-200 bg-blue-50">
-        <CardContent className="p-4 space-y-3">
-          <p className="text-sm font-bold text-blue-900">After Deploy — Set These in Base44 Dashboard → Settings → Secrets</p>
+        <CardContent className="p-4 space-y-4">
+          <p className="text-sm font-bold text-blue-900">After Deploy — Configure Your Secrets</p>
+          <p className="text-xs text-blue-700">Enter the values you used when running the deploy script, then copy each secret into Base44 Dashboard → Settings → Secrets.</p>
+
+          {/* Input fields */}
+          <div className="grid md:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-blue-800">Server IP</label>
+              <input
+                className="w-full text-xs font-mono border border-blue-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                value={serverIp}
+                onChange={e => setServerIp(e.target.value)}
+                placeholder="192.95.36.154"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-blue-800">API_TOKEN (from deploy script)</label>
+              <input
+                className="w-full text-xs font-mono border border-blue-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                value={apiToken}
+                onChange={e => setApiToken(e.target.value)}
+                placeholder="your-secret-token"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-blue-800">KANNEL_ADMIN_PASS</label>
+              <input
+                className="w-full text-xs font-mono border border-blue-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                value={kannelPass}
+                onChange={e => setKannelPass(e.target.value)}
+                placeholder="CHANGE_ADMIN_PASSWORD"
+              />
+            </div>
+          </div>
+
+          {/* Generated secrets */}
           <div className="space-y-2">
             {[
-              ["SERVER_API_URL",    "http://192.95.36.154:5000"],
-              ["SERVER_API_TOKEN",  "CHANGE_THIS_SECRET_TOKEN"],
-              ["KANNEL_ADMIN_URL",  "http://192.95.36.154:13000"],
-              ["KANNEL_ADMIN_PASS", "CHANGE_ADMIN_PASSWORD"],
+              ["SERVER_API_URL",    `http://${serverIp}:5000`],
+              ["SERVER_API_TOKEN",  apiToken],
+              ["KANNEL_ADMIN_URL",  `http://${serverIp}:13000`],
+              ["KANNEL_ADMIN_PASS", kannelPass],
             ].map(([k, v]) => (
               <div key={k} className="flex items-center gap-2 bg-white rounded px-3 py-2 border border-blue-200">
                 <code className="text-xs font-mono font-semibold text-blue-800 shrink-0 w-44">{k}</code>
-                <code className="text-xs font-mono text-gray-600 flex-1">{v}</code>
-                <button onClick={() => copyLine(`${k}=${v}`)} className="text-muted-foreground hover:text-foreground">
+                <code className="text-xs font-mono text-gray-700 flex-1 truncate">{v}</code>
+                <button onClick={() => copyLine(v)} className="text-muted-foreground hover:text-foreground shrink-0 p-1 rounded hover:bg-blue-100" title="Copy value only">
                   <Copy className="w-3 h-3" />
                 </button>
               </div>
             ))}
           </div>
-          <p className="text-xs text-blue-700">
-            ✅ Once secrets are set: SMPP test, Kannel reload, DLR callbacks, billing dashboard all work live.
-            Base44 DB (clients/suppliers/routes/logs) auto-syncs to Kannel config on every save.
-          </p>
+
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <p className="text-xs text-green-800 font-semibold mb-1">✅ Once all 4 secrets are saved in Base44:</p>
+            <ul className="text-xs text-green-700 space-y-0.5 list-disc list-inside">
+              <li>SMPP Gateway → Test Bind buttons go live</li>
+              <li>Kannel Reload works from the dashboard</li>
+              <li>DLR callbacks update SMS log statuses in real-time</li>
+              <li>Clients/Suppliers auto-sync to Kannel on every save</li>
+            </ul>
+          </div>
         </CardContent>
       </Card>
 
