@@ -1,1194 +1,1031 @@
-sudo apt update
-# Install Node.js (Current LTS recommended)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y node.js git nginx
-# Install PM2 to manage the background process
-sudo npm install -g pm2
+ Quick Fix — "Access Denied" from net2app-server (old process)
+Root cause: You have TWO server processes running — net2app-server (id:1, old, 561 restarts, wrong password) and net2app-api (id:2, new, correct). The old one is causing the errors. Kill it and fix the DB user.
 
-cd /var/www
-git clone https://github.com/eliasewu/net2app.com.git
-cd net2app.com
+Step 1 — Kill the old broken process:
+pm2 delete net2app-server
+pm2 delete 1
+pm2 save
+pm2 list
 
-# Create the environment file as per your README
-nano .env.local
+Step 2 — Re-provision DB user (copy all at once):
+mysql -u root -p'Ariya2015@db' -e "DROP USER IF EXISTS 'net2app'@'localhost';"
+mysql -u root -p'Ariya2015@db' -e "CREATE USER 'net2app'@'localhost' IDENTIFIED BY 'Ariya2015@db';"
+mysql -u root -p'Ariya2015@db' -e "GRANT ALL PRIVILEGES ON \`net2app\`.* TO 'net2app'@'localhost'; FLUSH PRIVILEGES;"
 
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://your-api-url.com
+Step 3 — Verify fix + restart API:
+mysql -u net2app -p'Ariya2015@db' net2app -e "SELECT 'OK';"
+pm2 restart net2app-api
+pm2 logs net2app-api --lines 10
 
-npm install
-npm run build
-sudo nano /etc/nginx/sites-available/net2app
-server {
-    listen 80;
-    server_name yourdomain.com; # Replace with your domain or IP
+Step 4 — Confirm health:
+curl -s http://127.0.0.1:5000/health
+# Expected: {"ok":true,"db":"connected"}
 
-    root /var/www/net2app.com/dist;
-    index index.html;
+Manual MariaDB Connect — Verify / Fix DB Access
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
+SSH into server then run:
 
-    # Connectivity for potential backend synchronization
-    location /api/ {
-        proxy_pass http://localhost:5000; # Adjust if your backend is on a different port
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
+# Connect as root:
 
-sudo ln -s /etc/nginx/sites-available/net2app /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
+mysql -u root -p'Ariya2015@db' net2app
 
-chmod +x deploy.sh
-./deploy.sh
+# Connect as app user:
 
+mysql -u net2app -p'Ariya2015@db' net2app
 
+Fix "Access Denied" errors:
 
-**Welcome to your Base44 project** 
+# Run as root user in mysql:
 
-**About**
+DROP USER IF EXISTS 'net2app'@'localhost';
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+CREATE USER 'net2app'@'localhost' IDENTIFIED BY 'Ariya2015@db';
 
-This project contains everything you need to run your app locally.
+GRANT ALL PRIVILEGES ON `net2app`.* TO 'net2app'@'localhost';
 
-**Edit the code in your local development environment**
+FLUSH PRIVILEGES;
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+Check tables exist:
 
-**Prerequisites:** 
+SHOW TABLES;
 
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
+SELECT COUNT(*) FROM clients;
 
-```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
+SELECT COUNT(*) FROM suppliers;
 
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
-```
+SELECT COUNT(*) FROM sms_log;
 
-Run the app: `npm run dev`
+Restart API after DB fix:
 
-**Publish your changes**
+pm2 restart net2app-api
 
-Open [Base44.com](http://Base44.com) and click on Publish.
-Complete Asterisk Installation Script - All Issues Fixed
+pm2 logs net2app-api --lines 20
+
+curl -s http://127.0.0.1:5000/health
+
+Test API endpoints manually:
+Health check
+curl -s -H "Authorization: Bearer Net2app@API2025!" http://192.95.36.154:5000/health
+List clients
+curl -s -H "Authorization: Bearer Net2app@API2025!" http://192.95.36.154:5000/api/clients
+List suppliers
+curl -s -H "Authorization: Bearer Net2app@API2025!" http://192.95.36.154:5000/api/suppliers
+Sync Kannel config
+curl -s -X POST -H "Authorization: Bearer Net2app@API2025!" http://192.95.36.154:5000/api/kannel/sync
+
+How Kannel Auto-Config Works
+
+1. Add Clients / Suppliers in UI
+
+Go to Clients or Suppliers, set connection type = SMPP, fill in IP / port / username / password.
+
+2. Click "Sync Kannel" or run script
+
+From SMPP Gateway page → Sync button calls POST /api/kannel/sync which runs gen-kannel-conf.sh
+
+3. kannel.conf auto-written + reloaded
+
+Script reads all active SMPP suppliers (smsc blocks) + clients (smpp-server blocks) from MariaDB and HUPs bearerbox.
+bash /opt/net2app-api/gen-kannel-conf.sh
+
+One-Line Deploy (run as root on Debian 12)
+bash <(curl -s https://raw.githubusercontent.com/eliasewu/net2app.com/main/deploy.sh)
+
+SSH: ssh root@192.95.36.154 — password: Ariya2015@db
+
+Base44 App ID — needed for frontend Vite build
+VITE_BASE44_APP_ID
+VITE_BASE44_APP_BASE_URL
+Functions Ver
+
+Find your App ID in the Base44 app URL: app.base44.com/apps/YOUR_APP_ID
+✈
+
+Pre-Flight Check
+
+Detect what is already installed: MariaDB, Kannel, Nginx, Node.js, PM2, UFW, Fail2Ban
+1
+
+System Update
+
+apt-get update/upgrade + base packages
+2
+
+MariaDB Database
+
+Install if missing; create DB + tables + billing triggers
+3
+
+Billing Triggers
+
+Real-time billing triggers — billing-type aware (send/submit/delivery)
+4
+
+Kannel SMS Gateway
+
+bearerbox + smsbox — SMPP gateway for real SMS delivery
+5
+
+Node.js 20 + PM2
+
+Install if missing; process manager for all services
+6
+
+SMPP API Server (:5000)
+
+Express API — DLR callback, Kannel reload, health check
+6b
+
+Session Servers (WA/TG/IMO)
+
+WPPConnect :5001 (WhatsApp), GramJS :5002 (Telegram), IMO-Bridge :5003 — real QR pairing
+7
+
+Clone & Build Frontend
+
+Clone from GitHub, inject Base44 .env, npm build, deploy to /var/www/html
+8
+
+Nginx SPA + API Proxy
+
+SPA fallback + /api/ reverse proxy + CORS headers
+9
+
+UFW Firewall
+
+Open: 22,80,443,5001,5002,5003,5060,9095-9200. Lock: 3306,13000,13001,13013
+10
+
+Fail2Ban
+
+SSH brute-force protection
+11
+
+Kannel Sync from DB
+
+Auto-generate kannel.conf from MariaDB clients/suppliers
+12
+
+Save Credentials
+
+Write /root/.net2app_credentials with all passwords + endpoints
+13
+
+Health Check + Summary
+
+Verify all services; print full access summary with all URLs/tokens
+Full Script — deploy.sh
+
 #!/bin/bash
-# ════════════════════════════════════════════════════════════════════
-#  ASTERISK 20 - Full Production Install for Net2App
-#  Fixes ALL known issues: permissions, modules, dirs, segfaults
-#  Run: sudo bash install_asterisk_full.sh
-# ════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
+#  Net2app — Complete Debian 12 Deployment
+#  Includes: MariaDB, Kannel SMS GW, Express API, WPPConnect (WA),
+#  GramJS (Telegram), IMO-Bridge, Nginx SPA, Session Servers,
+#  UFW Firewall, Fail2Ban, PM2
+#  Server: 192.95.36.154  User: root
+#
+#  ARCHITECTURE:
+#  Frontend (React) → Base44 Cloud API (entities/functions/auth)
+#  Session Servers  → WPPConnect:5001, GramJS:5002, IMO:5003
+#  SMS Gateway      → Kannel bearerbox:13001 + smsbox
+#  Local API        → Express:5000 (DLR, SMPP sync, health)
+# ═══════════════════════════════════════════════════════════════════
 
-# Force root
-if [ "$EUID" -ne 0 ]; then
-    echo "Switching to root..."
-    exec sudo bash "$0" "$@"
-fi
+if [ "$EUID" -ne 0 ]; then exec sudo bash "$0" "$@"; fi
+# Do NOT use set -e — we handle errors per-check gracefully
 
-set -e
+GREEN="\033[0;32m"; RED="\033[0;31m"; YELLOW="\033[1;33m"; BLUE="\033[0;34m"; NC="\033[0m"
+ok()     { echo -e "\${GREEN}[OK]\${NC} $1"; }
+fail()   { echo -e "\${RED}[FAIL]\${NC} $1"; exit 1; }
+info()   { echo -e "\${YELLOW}[i]\${NC} $1"; }
+header() { echo -e "\n\${BLUE}══ $1 ══\${NC}\n"; }
 
-# ═══════════════ COLORS ═══════════════
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-ok()     { echo -e "${GREEN}[✓]${NC} $1"; }
-fail()   { echo -e "${RED}[✗]${NC} $1"; }
-info()   { echo -e "${YELLOW}[i]${NC} $1"; }
-header() {
-    echo ""
-    echo -e "${BLUE}╔═══════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}  $1"
-    echo -e "${BLUE}╚═══════════════════════════════════════════════╝${NC}"
-    echo ""
-}
-
-# ═══════════════ CONFIGURATION ═══════════════
-ASTERISK_VERSION="20"
-SIP_PASSWORD="Telco1988"
-AMI_PASSWORD="Telco1988"
-VM_PASSWORD="Telco1988"
-MYSQL_USER="net2app"
-MYSQL_PASS="Telco1988"
-MYSQL_DB="net2app"
+# ── CONFIG ───────────────────────────────────────────────────────────
+DB_ROOT_PASS="Ariya2015@db"
+DB_APP_USER="net2app"
+DB_APP_PASS="Ariya2015@db"
+DB_NAME="net2app"
+KANNEL_ADMIN_PASS="Ariya2015@k"
+API_TOKEN="Net2app@API2025!"
+GITHUB_REPO="https://github.com/eliasewu/net2app.com.git"
+DEPLOY_DIR="/opt/net2app"
+WEBROOT="/var/www/html"
+API_DIR="/opt/net2app-api"
+BRANCH="main"
+VITE_APP_ID="69dff8a678c51b2913488cf3"
+VITE_APP_BASE_URL="https://api.base44.com"
+VITE_FUNCTIONS_VERSION="v3"
+# ─────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "════════════════════════════════════════════════"
-echo "  ASTERISK ${ASTERISK_VERSION} FULL INSTALLER"
-echo "  Server: $(hostname) ($(hostname -I | awk '{print $1}'))"
-echo "  User:   $(whoami)"
-echo "════════════════════════════════════════════════"
+echo "════════════════════════════════════════════════════════════"
+echo "  NET2APP SMART DEPLOYMENT  $(date)"
+echo "════════════════════════════════════════════════════════════"
 
-# ════════════════════════════════════════════════════
-# STEP 1: SYSTEM UPDATE
-# ════════════════════════════════════════════════════
-header "STEP 1: Update System"
+# ══ PRE-FLIGHT: Check what is already installed ═══════════════════
+header "PRE-FLIGHT: Checking installed components"
 
+HAS_MARIADB=0;   mysql  --version &>/dev/null       && HAS_MARIADB=1   && ok "MariaDB:   FOUND"   || info "MariaDB:   NOT FOUND — will install"
+HAS_KANNEL=0;    which  bearerbox &>/dev/null        && HAS_KANNEL=1    && ok "Kannel:    FOUND"   || info "Kannel:    NOT FOUND — will install"
+HAS_SMSBOX=0;    which  smsbox    &>/dev/null        && HAS_SMSBOX=1    && ok "Smsbox:    FOUND"   || info "Smsbox:    NOT FOUND — will install"
+HAS_ASTERISK=0;  which  asterisk  &>/dev/null        && HAS_ASTERISK=1  && ok "Asterisk:  FOUND (not required, skipping)" || info "Asterisk:  NOT FOUND (optional, skipping)"
+HAS_NGINX=0;     nginx  -v        &>/dev/null 2>&1   && HAS_NGINX=1     && ok "Nginx:     FOUND"   || info "Nginx:     NOT FOUND — will install"
+HAS_NODE=0;      node   --version  &>/dev/null       && HAS_NODE=1      && ok "Node.js:   FOUND ($(node -v))" || info "Node.js:   NOT FOUND — will install"
+HAS_PM2=0;       pm2   --version   &>/dev/null 2>&1  && HAS_PM2=1       && ok "PM2:       FOUND"   || info "PM2:       NOT FOUND — will install"
+HAS_UFW=0;       ufw    status     &>/dev/null       && HAS_UFW=1       && ok "UFW:       FOUND"   || info "UFW:       NOT FOUND — will install"
+HAS_FAIL2BAN=0;  fail2ban-client status &>/dev/null  && HAS_FAIL2BAN=1  && ok "Fail2Ban:  FOUND"   || info "Fail2Ban:  NOT FOUND — will install"
+
+echo ""
+info "Pre-flight done. Proceeding — installing missing, updating configs for all."
+
+header "STEP 1: System Update & Base Packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y 2>&1 | tail -3
-apt-get upgrade -y 2>&1 | tail -3
-ok "System updated ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 2: INSTALL DEPENDENCIES
-# ════════════════════════════════════════════════════
-header "STEP 2: Install Build Dependencies"
-
+apt-get update -y && apt-get upgrade -y
 apt-get install -y \
-    build-essential wget curl git \
-    libssl-dev libncurses5-dev libnewt-dev \
-    libxml2-dev libsqlite3-dev uuid-dev \
-    libjansson-dev libedit-dev \
-    libgsm1-dev libspeex-dev libspeexdsp-dev \
-    libogg-dev libvorbis-dev libcurl4-openssl-dev \
-    libiksemel-dev pkg-config \
-    liblua5.2-dev mpg123 sox \
-    unixodbc unixodbc-dev odbcinst \
-    subversion libmariadb-dev \
-    libmariadb-dev-compat \
-    autoconf automake libtool \
-    python3 python3-dev \
-    bison flex 2>&1 | tail -3
+  build-essential git curl wget vim net-tools tcpdump nmap \
+  ufw fail2ban supervisor lsb-release gnupg ca-certificates \
+  libssl-dev libncurses5-dev libxml2-dev libsqlite3-dev \
+  uuid-dev libjansson-dev libedit-dev libgsm1-dev \
+  mpg123 sox unixodbc unixodbc-dev pkg-config \
+  php8.2 php8.2-mysql php8.2-curl nginx
+ok "Base packages installed"
 
-# Optional libs (don't fail if missing)
-apt-get install -y libsrtp2-dev 2>/dev/null || \
-apt-get install -y libsrtp-dev 2>/dev/null || \
-info "libsrtp not available (optional)"
-
-ok "Dependencies installed ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 3: CLEAN PREVIOUS INSTALL
-# ════════════════════════════════════════════════════
-header "STEP 3: Clean Previous Installation"
-
-# Stop any running asterisk
-systemctl stop asterisk 2>/dev/null || true
-pm2 delete asterisk 2>/dev/null || true
-pkill -9 asterisk 2>/dev/null || true
+header "STEP 2: MariaDB Database Server"
+if [ "$HAS_MARIADB" -eq 0 ]; then
+  apt-get install -y mariadb-server mariadb-client
+  ok "MariaDB installed"
+else
+  info "MariaDB already installed — ensuring service is running"
+fi
+systemctl enable mariadb && systemctl start mariadb
 sleep 2
-ok "Previous instances stopped ✓"
 
-# ════════════════════════════════════════════════════
-# STEP 4: DOWNLOAD ASTERISK SOURCE
-# ════════════════════════════════════════════════════
-header "STEP 4: Download Asterisk ${ASTERISK_VERSION}"
+# Try connecting as root with no password first (fresh install), then with known password
+mysql -u root -p"Ariya2015@db" -e "SELECT 1" 2>/dev/null || mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'Ariya2015@db'; FLUSH PRIVILEGES;"
+mysql -u root -p"Ariya2015@db" << EOF
+CREATE DATABASE IF NOT EXISTS `net2app` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+DROP USER IF EXISTS "net2app"@"localhost";
+CREATE USER "net2app"@"localhost" IDENTIFIED BY "Ariya2015@db";
+GRANT ALL PRIVILEGES ON `net2app`.* TO "net2app"@"localhost";
+FLUSH PRIVILEGES;
+EOF
 
-cd /usr/src
+mysql -u root -p"Ariya2015@db" net2app << 'SQLEOF'
+CREATE TABLE IF NOT EXISTS clients (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL DEFAULT "default",
+  name VARCHAR(128), email VARCHAR(128),
+  smpp_ip VARCHAR(64), smpp_port INT DEFAULT 9096,
+  smpp_username VARCHAR(64), smpp_password VARCHAR(128),
+  connection_type ENUM("SMPP","HTTP") DEFAULT "SMPP",
+  billing_type ENUM("send","submit","delivery") DEFAULT "submit",
+  force_dlr TINYINT(1) DEFAULT 0, force_dlr_timeout INT DEFAULT 30,
+  status ENUM("active","inactive","blocked") DEFAULT "active",
+  balance DECIMAL(12,4) DEFAULT 0, currency VARCHAR(8) DEFAULT "USD",
+  tps_limit INT DEFAULT 100, credit_limit DECIMAL(12,4) DEFAULT 0,
+  created_at DATETIME DEFAULT NOW(), INDEX(tenant_id), INDEX(status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-# Check if source already exists
-ASTERISK_SRC=$(find /usr/src -maxdepth 1 -name "asterisk-${ASTERISK_VERSION}*" -type d 2>/dev/null | head -1)
+CREATE TABLE IF NOT EXISTS suppliers (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL DEFAULT "default",
+  name VARCHAR(128), category ENUM("sms","voice_otp","whatsapp","telegram","device","android") DEFAULT "sms",
+  connection_type ENUM("HTTP","SMPP","SIP","SDK","DEVICE","ANDROID") DEFAULT "SMPP",
+  smpp_ip VARCHAR(64), smpp_port INT DEFAULT 2775,
+  smpp_username VARCHAR(64), smpp_password VARCHAR(128),
+  http_url TEXT, http_method ENUM("GET","POST") DEFAULT "POST", http_params TEXT,
+  api_key VARCHAR(256), api_secret VARCHAR(256), dlr_url TEXT,
+  status ENUM("active","inactive","blocked") DEFAULT "active",
+  priority INT DEFAULT 1, tps_limit INT DEFAULT 100,
+  bind_status VARCHAR(32) DEFAULT "unknown", last_bind_at DATETIME,
+  created_at DATETIME DEFAULT NOW(), INDEX(tenant_id), INDEX(category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-if [ -z "$ASTERISK_SRC" ] || [ ! -f "$ASTERISK_SRC/configure" ]; then
-    info "Downloading fresh source..."
-    rm -rf asterisk-${ASTERISK_VERSION}*
-    rm -f asterisk-${ASTERISK_VERSION}-current.tar.gz
+CREATE TABLE IF NOT EXISTS routes (
+  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL DEFAULT "default",
+  name VARCHAR(128), client_id VARCHAR(64), client_name VARCHAR(128),
+  supplier_id VARCHAR(64), supplier_name VARCHAR(128),
+  mcc VARCHAR(8), mnc VARCHAR(8), country VARCHAR(64), network VARCHAR(128), prefix VARCHAR(32),
+  routing_mode ENUM("LCR","ASR","Priority","Round Robin") DEFAULT "Priority",
+  status ENUM("active","inactive","blocked") DEFAULT "active",
+  fail_count INT DEFAULT 0, auto_block_threshold INT DEFAULT 10, is_auto_blocked TINYINT(1) DEFAULT 0,
+  INDEX(tenant_id), INDEX(mcc, mnc), INDEX(supplier_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    wget -q --show-progress \
-        "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VERSION}-current.tar.gz" \
-        -O asterisk-${ASTERISK_VERSION}-current.tar.gz
+CREATE TABLE IF NOT EXISTS sms_log (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL DEFAULT "default",
+  message_id VARCHAR(64), client_id VARCHAR(64), client_name VARCHAR(128),
+  supplier_id VARCHAR(64), supplier_name VARCHAR(128),
+  sender_id VARCHAR(32), destination VARCHAR(32),
+  mcc VARCHAR(8), mnc VARCHAR(8), country VARCHAR(64), network VARCHAR(128),
+  content TEXT, status ENUM("pending","sent","delivered","failed","rejected","blocked") DEFAULT "pending",
+  fail_reason VARCHAR(256), dest_msg_id VARCHAR(64),
+  parts TINYINT DEFAULT 1, cost DECIMAL(12,6) DEFAULT 0, sell_rate DECIMAL(12,6) DEFAULT 0,
+  submit_time DATETIME DEFAULT NOW(), delivery_time DATETIME,
+  INDEX(tenant_id), INDEX(destination), INDEX(client_id), INDEX(status), INDEX(submit_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    tar -xzf asterisk-${ASTERISK_VERSION}-current.tar.gz
-    ASTERISK_SRC=$(find /usr/src -maxdepth 1 -name "asterisk-${ASTERISK_VERSION}*" -type d | head -1)
-    ok "Source downloaded ✓"
+CREATE TABLE IF NOT EXISTS billing_summary (
+  id VARCHAR(128) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL,
+  period DATE, total_sms BIGINT DEFAULT 0,
+  total_cost DECIMAL(14,4) DEFAULT 0, total_revenue DECIMAL(14,4) DEFAULT 0,
+  margin DECIMAL(14,4) DEFAULT 0, updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  INDEX(tenant_id, period)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS smpp_users (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  client_id VARCHAR(64) NOT NULL, smpp_username VARCHAR(64) NOT NULL,
+  smpp_password VARCHAR(128), smpp_port INT DEFAULT 9096,
+  status ENUM("active","inactive") DEFAULT "active",
+  last_bind DATETIME, bind_count INT DEFAULT 0,
+  created_at DATETIME DEFAULT NOW(), updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  UNIQUE KEY uk_user (smpp_username), INDEX idx_client (client_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SQLEOF
+ok "MariaDB: net2app database + all tables created"
+
+header "STEP 3: Billing Triggers (Real-Time)"
+mysql -u root -p"Ariya2015@db" net2app << 'TRIGEOF'
+DROP TRIGGER IF EXISTS trg_sms_billing_insert;
+DROP TRIGGER IF EXISTS trg_sms_billing_update;
+CREATE TRIGGER trg_sms_billing_update
+AFTER UPDATE ON sms_log FOR EACH ROW
+BEGIN
+  DECLARE v_billing_type VARCHAR(16); DECLARE v_force_dlr TINYINT(1);
+  DECLARE v_do_client TINYINT(1) DEFAULT 0; DECLARE v_do_supplier TINYINT(1) DEFAULT 0;
+  IF NEW.status = OLD.status THEN LEAVE begin; END IF;
+  SELECT IFNULL(billing_type,"submit"), IFNULL(force_dlr,0) INTO v_billing_type, v_force_dlr FROM clients WHERE id=NEW.client_id LIMIT 1;
+  CASE v_billing_type
+    WHEN "send" THEN IF NEW.status NOT IN ("blocked","pending") THEN SET v_do_client=1; END IF;
+    WHEN "submit" THEN IF NEW.status NOT IN ("failed","rejected","blocked","pending") THEN SET v_do_client=1; END IF;
+    WHEN "delivery" THEN
+      IF NEW.status="delivered" THEN SET v_do_client=1; END IF;
+      IF v_force_dlr=1 AND NEW.status NOT IN ("failed","rejected","blocked","pending") THEN SET v_do_client=1; END IF;
+    ELSE IF NEW.status NOT IN ("failed","rejected","blocked","pending") THEN SET v_do_client=1; END IF;
+  END CASE;
+  IF NEW.status NOT IN ("failed","rejected","blocked","pending") THEN SET v_do_supplier=1; END IF;
+  INSERT INTO billing_summary (id, tenant_id, period, total_sms, total_cost, total_revenue, margin)
+  VALUES (CONCAT(NEW.tenant_id,"_",DATE_FORMAT(DATE(NEW.submit_time),"%Y%m%d")),
+    NEW.tenant_id, DATE(NEW.submit_time),
+    IF(v_do_client,1,0), IF(v_do_supplier,NEW.cost,0),
+    IF(v_do_client,NEW.sell_rate,0), IF(v_do_client,NEW.sell_rate,0)-IF(v_do_supplier,NEW.cost,0))
+  ON DUPLICATE KEY UPDATE
+    total_sms=total_sms+IF(v_do_client,1,0), total_cost=total_cost+IF(v_do_supplier,NEW.cost,0),
+    total_revenue=total_revenue+IF(v_do_client,NEW.sell_rate,0),
+    margin=margin+IF(v_do_client,NEW.sell_rate,0)-IF(v_do_supplier,NEW.cost,0), updated_at=NOW();
+  IF v_do_client=1 THEN UPDATE clients SET balance=balance-NEW.sell_rate WHERE id=NEW.client_id; END IF;
+END;
+TRIGEOF
+ok "Billing triggers created"
+
+header "STEP 4: Kannel SMS Gateway (bearerbox + smsbox)"
+if [ "$HAS_KANNEL" -eq 0 ] || [ "$HAS_SMSBOX" -eq 0 ]; then
+  apt-get install -y kannel
+  ok "Kannel installed"
 else
-    ok "Source already exists: $ASTERISK_SRC"
+  info "Kannel already installed — updating config only"
 fi
-
-cd "$ASTERISK_SRC"
-info "Working in: $(pwd)"
-
-# ════════════════════════════════════════════════════
-# STEP 5: INSTALL PREREQUISITES
-# ════════════════════════════════════════════════════
-header "STEP 5: Asterisk Prerequisites"
-
-if [ -f contrib/scripts/install_prereq ]; then
-    chmod +x contrib/scripts/install_prereq
-    contrib/scripts/install_prereq install 2>&1 | tail -5 || true
-    ok "Prerequisites installed ✓"
-fi
-
-# ════════════════════════════════════════════════════
-# STEP 6: CREATE ALL REQUIRED DIRECTORIES
-# ════════════════════════════════════════════════════
-header "STEP 6: Create All Required Directories"
-
-# Create asterisk user FIRST
-if ! id asterisk &>/dev/null; then
-    useradd -r \
-        -d /var/lib/asterisk \
-        -s /usr/sbin/nologin \
-        -c "Asterisk PBX Daemon" \
-        asterisk
-    ok "User asterisk created ✓"
-else
-    ok "User asterisk exists ✓"
-fi
-
-# Create EVERY directory asterisk needs (prevents 'No such file' errors)
-for DIR in \
-    /etc/asterisk \
-    /var/lib/asterisk \
-    /var/lib/asterisk/phoneprov \
-    /var/lib/asterisk/sounds \
-    /var/lib/asterisk/sounds/en \
-    /var/lib/asterisk/moh \
-    /var/lib/asterisk/keys \
-    /var/lib/asterisk/agi-bin \
-    /var/lib/asterisk/documentation \
-    /var/lib/asterisk/firmware \
-    /var/lib/asterisk/firmware/iax \
-    /var/lib/asterisk/images \
-    /var/lib/asterisk/static-http \
-    /var/lib/asterisk/res_parking \
-    /var/spool/asterisk \
-    /var/spool/asterisk/voicemail \
-    /var/spool/asterisk/voicemail/default \
-    /var/spool/asterisk/voicemail/default/1234/INBOX \
-    /var/spool/asterisk/voicemail/default/1001/INBOX \
-    /var/spool/asterisk/voicemail/default/1002/INBOX \
-    /var/spool/asterisk/monitor \
-    /var/spool/asterisk/outgoing \
-    /var/spool/asterisk/outgoing_temp \
-    /var/spool/asterisk/tmp \
-    /var/spool/asterisk/meetme \
-    /var/spool/asterisk/recording \
-    /var/log/asterisk \
-    /var/log/asterisk/cdr-csv \
-    /var/log/asterisk/cdr-custom \
-    /run/asterisk \
-    /usr/lib/asterisk \
-    /usr/lib/asterisk/modules; do
-    mkdir -p "$DIR"
-done
-
-# Set ownership
-chown -R asterisk:asterisk \
-    /etc/asterisk \
-    /var/lib/asterisk \
-    /var/spool/asterisk \
-    /var/log/asterisk \
-    /run/asterisk \
-    /usr/lib/asterisk
-
-chmod -R 755 /var/lib/asterisk /var/spool/asterisk
-chmod -R 750 /var/log/asterisk /etc/asterisk
-
-ok "All directories created with correct permissions ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 7: CONFIGURE ASTERISK
-# ════════════════════════════════════════════════════
-header "STEP 7: Configure Asterisk"
-
-cd "$ASTERISK_SRC"
-
-info "Running ./configure (5-10 minutes)..."
-./configure \
-    --with-jansson-bundled \
-    --with-pjproject-bundled \
-    --without-radius \
-    --without-postgres \
-    --without-tds \
-    --without-odbc \
-    2>&1 | tail -10
-
-ok "Configure complete ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 8: SELECT MODULES (DISABLE PROBLEMATIC)
-# ════════════════════════════════════════════════════
-header "STEP 8: Select Modules"
-
-cd "$ASTERISK_SRC"
-
-make menuselect.makeopts 2>&1 | tail -3
-
-# Enable required modules
-menuselect/menuselect \
-    --enable chan_sip \
-    --enable chan_pjsip \
-    --enable res_pjsip \
-    --enable res_pjsip_session \
-    --enable res_pjsip_authenticator_digest \
-    --enable res_pjsip_endpoint_identifier_ip \
-    --enable res_pjsip_registrar \
-    --enable res_pjsip_sdp_rtp \
-    --enable res_pjsip_outbound_registration \
-    --enable app_voicemail \
-    --enable app_dial \
-    --enable app_playback \
-    --enable app_record \
-    --enable app_echo \
-    --enable codec_gsm \
-    --enable codec_ulaw \
-    --enable codec_alaw \
-    --enable format_mp3 \
-    --enable cdr_csv \
-    --enable cdr_manager \
-    --enable cdr_mysql \
-    --enable cel_manager \
-    --disable chan_misdn \
-    --disable chan_sip \
-    --disable cdr_radius \
-    --disable cel_radius \
-    --disable cdr_tds \
-    --disable cel_tds \
-    --disable cdr_pgsql \
-    --disable cel_pgsql \
-    --disable cdr_odbc \
-    --disable cel_odbc \
-    --disable cdr_sqlite3_custom \
-    --disable cel_sqlite3_custom \
-    --disable cdr_custom \
-    --disable cel_custom \
-    --disable res_snmp \
-    --disable res_odbc \
-    --disable res_config_odbc \
-    --disable res_phoneprov \
-    menuselect.makeopts 2>/dev/null || true
-
-# Re-enable chan_sip (we want it)
-menuselect/menuselect --enable chan_sip menuselect.makeopts 2>/dev/null || true
-
-ok "Modules selected (problematic ones disabled) ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 9: COMPILE
-# ════════════════════════════════════════════════════
-header "STEP 9: Compile Asterisk (10-20 minutes)"
-
-cd "$ASTERISK_SRC"
-CORES=$(nproc)
-info "Compiling with $CORES cores..."
-
-make -j${CORES} 2>&1 | tail -15
-
-# Check if make succeeded
-if [ ! -f main/asterisk ]; then
-    fail "Compilation failed - check make output"
-    exit 1
-fi
-
-ok "Compilation complete ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 10: INSTALL ASTERISK
-# ════════════════════════════════════════════════════
-header "STEP 10: Install Asterisk"
-
-cd "$ASTERISK_SRC"
-
-info "Running make install..."
-make install 2>&1 | tail -10
-ok "make install ✓"
-
-info "Running make samples (with all dirs ready)..."
-make samples 2>&1 | tail -5
-ok "make samples ✓"
-
-info "Running make config..."
-make config 2>&1 | tail -3
-ok "make config ✓"
-
-info "Running ldconfig..."
-ldconfig
-ok "Libraries linked ✓"
-
-# Verify binary
-if [ ! -f /usr/sbin/asterisk ]; then
-    fail "Asterisk binary not installed!"
-    exit 1
-fi
-
-ok "Asterisk binary: $(asterisk -V) ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 11: WRITE CONFIGURATIONS
-# ════════════════════════════════════════════════════
-header "STEP 11: Write Configuration Files"
-
-# ── asterisk.conf ─────────────────────────────────────
-cat > /etc/asterisk/asterisk.conf <<'EOF'
-[options]
-runuser  = asterisk
-rungroup = asterisk
-verbose  = 3
-debug    = 0
-alwaysfork = no
-nofork = yes
-quiet = no
-documentation_language = en_US
-
-[directories]
-astetcdir    => /etc/asterisk
-astmoddir    => /usr/lib/asterisk/modules
-astvarlibdir => /var/lib/asterisk
-astdbdir     => /var/lib/asterisk
-astkeydir    => /var/lib/asterisk
-astdatadir   => /var/lib/asterisk
-astagidir    => /var/lib/asterisk/agi-bin
-astspooldir  => /var/spool/asterisk
-astrundir    => /run/asterisk
-astlogdir    => /var/log/asterisk
-astsbindir   => /usr/sbin
-EOF
-ok "asterisk.conf ✓"
-
-# ── modules.conf (disable problematic modules) ─────────
-cat > /etc/asterisk/modules.conf <<'EOF'
-[modules]
-autoload = yes
-
-; ── Disable modules that cause crashes/errors ──
-noload => cdr_radius.so
-noload => cel_radius.so
-noload => cdr_tds.so
-noload => cel_tds.so
-noload => cdr_pgsql.so
-noload => cel_pgsql.so
-noload => cdr_odbc.so
-noload => cel_odbc.so
-noload => cdr_sqlite3_custom.so
-noload => cel_sqlite3_custom.so
-noload => cdr_custom.so
-noload => cel_custom.so
-noload => res_snmp.so
-noload => res_odbc.so
-noload => res_config_odbc.so
-noload => res_phoneprov.so
-noload => app_minivm.so
-noload => app_externalivr.so
-EOF
-ok "modules.conf ✓"
-
-# ── sip.conf ──────────────────────────────────────────
-cat > /etc/asterisk/sip.conf <<EOF
-[general]
-context          = default
-bindport         = 5060
-bindaddr         = 0.0.0.0
-language         = en
-disallow         = all
-allow            = ulaw
-allow            = alaw
-allow            = gsm
-nat              = force_rport,comedia
-qualify          = yes
-alwaysauthreject = yes
-canreinvite      = no
-session-timers   = refuse
-tcpenable        = yes
-tcpbindaddr      = 0.0.0.0:5060
-allowguest       = no
-defaultexpiry    = 120
-minexpiry        = 60
-maxexpiry        = 3600
-rtptimeout       = 60
-rtpholdtimeout   = 300
-useragent        = Net2App-PBX
-
-;── Extensions ──
-[1001]
-type      = friend
-context   = default
-host      = dynamic
-secret    = ${SIP_PASSWORD}
-callerid  = "Extension 1001" <1001>
-disallow  = all
-allow     = ulaw
-allow     = alaw
-allow     = gsm
-mailbox   = 1001@default
-qualify   = yes
-
-[1002]
-type      = friend
-context   = default
-host      = dynamic
-secret    = ${SIP_PASSWORD}
-callerid  = "Extension 1002" <1002>
-disallow  = all
-allow     = ulaw
-allow     = alaw
-allow     = gsm
-mailbox   = 1002@default
-qualify   = yes
-
-[1003]
-type      = friend
-context   = default
-host      = dynamic
-secret    = ${SIP_PASSWORD}
-callerid  = "Extension 1003" <1003>
-disallow  = all
-allow     = ulaw
-allow     = alaw
-mailbox   = 1003@default
-qualify   = yes
-EOF
-ok "sip.conf ✓"
-
-# ── pjsip.conf (modern SIP stack) ─────────────────────
-cat > /etc/asterisk/pjsip.conf <<EOF
-;── Global ──
-[global]
-type = global
-endpoint_identifier_order = ip,username,anonymous
-default_realm = net2app
-
-;── Transport ──
-[transport-udp]
-type     = transport
-protocol = udp
-bind     = 0.0.0.0:5060
-
-[transport-tcp]
-type     = transport
-protocol = tcp
-bind     = 0.0.0.0:5060
-
-;── Templates ──
-[endpoint-template](!)
-type            = endpoint
-context         = default
-disallow        = all
-allow           = ulaw,alaw,gsm
-direct_media    = no
-force_rport     = yes
-rewrite_contact = yes
-rtp_symmetric   = yes
-trust_id_inbound = yes
-
-[auth-template](!)
-type      = auth
-auth_type = userpass
-
-[aor-template](!)
-type              = aor
-max_contacts      = 5
-remove_existing   = yes
-qualify_frequency = 30
-
-;── Extension 1001 ──
-[1001](endpoint-template)
-auth     = auth1001
-aors     = aor1001
-callerid = "Ext 1001" <1001>
-
-[auth1001](auth-template)
-username = 1001
-password = ${SIP_PASSWORD}
-
-[aor1001](aor-template)
-mailboxes = 1001@default
-
-;── Extension 1002 ──
-[1002](endpoint-template)
-auth     = auth1002
-aors     = aor1002
-callerid = "Ext 1002" <1002>
-
-[auth1002](auth-template)
-username = 1002
-password = ${SIP_PASSWORD}
-
-[aor1002](aor-template)
-mailboxes = 1002@default
-
-;── Extension 1003 ──
-[1003](endpoint-template)
-auth     = auth1003
-aors     = aor1003
-callerid = "Ext 1003" <1003>
-
-[auth1003](auth-template)
-username = 1003
-password = ${SIP_PASSWORD}
-
-[aor1003](aor-template)
-mailboxes = 1003@default
-EOF
-ok "pjsip.conf ✓"
-
-# ── extensions.conf ───────────────────────────────────
-cat > /etc/asterisk/extensions.conf <<'EOF'
-[general]
-static          = yes
-writeprotect    = no
-autofallthrough = yes
-clearglobalvars = no
-
-[globals]
-VOICEMAIL_OPTS = u(unavail)b(busy)
-DIAL_TIMEOUT   = 30
-
-;── Default Context ──
-[default]
-include => extensions
-
-;── Extensions ──
-[extensions]
-; Ext 1001
-exten => 1001,1,NoOp(Calling Extension 1001)
- same => n,Set(CALLERID(num)=${CALLERID(num)})
- same => n,Dial(PJSIP/1001&SIP/1001,${DIAL_TIMEOUT})
- same => n,Goto(s-${DIALSTATUS},1)
-
-; Ext 1002
-exten => 1002,1,NoOp(Calling Extension 1002)
- same => n,Dial(PJSIP/1002&SIP/1002,${DIAL_TIMEOUT})
- same => n,Goto(s-${DIALSTATUS},1)
-
-; Ext 1003
-exten => 1003,1,NoOp(Calling Extension 1003)
- same => n,Dial(PJSIP/1003&SIP/1003,${DIAL_TIMEOUT})
- same => n,Goto(s-${DIALSTATUS},1)
-
-; Voicemail
-exten => _s-NOANSWER,1,VoiceMail(${EXTEN}@default,${VOICEMAIL_OPTS})
- same => n,Hangup()
-exten => _s-BUSY,1,VoiceMail(${EXTEN}@default,${VOICEMAIL_OPTS})
- same => n,Hangup()
-exten => _s-CHANUNAVAIL,1,VoiceMail(${EXTEN}@default,${VOICEMAIL_OPTS})
- same => n,Hangup()
-exten => _s-.,1,Hangup()
-
-; Service Numbers
-exten => 9999,1,Answer()                  ; Echo test
- same => n,Echo()
- same => n,Hangup()
-
-exten => 9998,1,Answer()                  ; Music demo
- same => n,Playback(demo-congrats)
- same => n,Hangup()
-
-exten => 9997,1,Answer()                  ; Voicemail check
- same => n,VoiceMailMain(${CALLERID(num)}@default)
- same => n,Hangup()
-
-exten => 8888,1,Answer()                  ; Date/Time
- same => n,SayUnixTime()
- same => n,Hangup()
-
-; Hangup handler
-exten => h,1,NoOp(Call ended)
- same => n,Hangup()
-
-; Invalid
-exten => i,1,Playback(pbx-invalid)
- same => n,Hangup()
-
-; Timeout
-exten => t,1,Playback(vm-goodbye)
- same => n,Hangup()
-EOF
-ok "extensions.conf ✓"
-
-# ── logger.conf ───────────────────────────────────────
-cat > /etc/asterisk/logger.conf <<'EOF'
-[general]
-dateformat     = %F %T
-use_callids    = yes
-appendhostname = no
-queue_log      = yes
-rotatestrategy = sequential
-
-[logfiles]
-console  => verbose,notice,warning,error
-messages => notice,warning,error
-full     => verbose,notice,warning,error,debug,dtmf,fax
-cdr-csv  => csv
-EOF
-ok "logger.conf ✓"
-
-# ── manager.conf (AMI) ────────────────────────────────
-cat > /etc/asterisk/manager.conf <<EOF
-[general]
-enabled         = yes
-port            = 5038
-bindaddr        = 0.0.0.0
-displayconnects = yes
-timestampevents = yes
-webenabled      = yes
-httptimeout     = 60
-
-[admin]
-secret       = ${AMI_PASSWORD}
-deny         = 0.0.0.0/0.0.0.0
-permit       = 127.0.0.1/255.255.255.0
-permit       = 10.0.0.0/255.0.0.0
-permit       = 172.16.0.0/255.240.0.0
-permit       = 192.168.0.0/255.255.0.0
-read         = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate,agi
-write        = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate,agi
-writetimeout = 5000
-
-[net2app]
-secret       = ${AMI_PASSWORD}
-deny         = 0.0.0.0/0.0.0.0
-permit       = 127.0.0.1/255.255.255.0
-read         = all
-write        = all
-EOF
-ok "manager.conf ✓"
-
-# ── voicemail.conf ────────────────────────────────────
-cat > /etc/asterisk/voicemail.conf <<EOF
-[general]
-format          = wav49|gsm|wav
-serveremail     = asterisk@$(hostname)
-attach          = yes
-skipms          = 3000
-maxsilence      = 10
-silencethreshold = 128
-maxlogins       = 3
-emaildateformat = %A, %B %d, %Y at %r
-sendvoicemail   = yes
-review          = yes
-operator        = yes
-saycid          = yes
-envelope        = yes
-
-[zonemessages]
-eastern  = America/New_York|'vm-received' Q 'digits/at' IMp
-central  = America/Chicago|'vm-received' Q 'digits/at' IMp
-european = Europe/Copenhagen|'vm-received' a d b 'digits/at' HM
-
-[default]
-1001 => ${VM_PASSWORD},Extension 1001,admin@$(hostname)
-1002 => ${VM_PASSWORD},Extension 1002,admin@$(hostname)
-1003 => ${VM_PASSWORD},Extension 1003,admin@$(hostname)
-EOF
-ok "voicemail.conf ✓"
-
-# ── cdr.conf ──────────────────────────────────────────
-cat > /etc/asterisk/cdr.conf <<'EOF'
-[general]
-enable        = yes
-unanswered    = no
-endbeforehexten = no
-initiatedseconds = no
-batch         = no
-size          = 100
-time          = 300
-scheduleronly = no
-safeshutdown  = yes
-
-[csv]
-usegmtime = no
-loguniqueid = yes
-loguserfield = yes
-EOF
-ok "cdr.conf ✓"
-
-# ── cdr_mysql.conf ────────────────────────────────────
-cat > /etc/asterisk/cdr_mysql.conf <<EOF
-[global]
-hostname = localhost
-port     = 3306
-dbname   = ${MYSQL_DB}
-password = ${MYSQL_PASS}
-user     = ${MYSQL_USER}
-table    = cdr
-charset  = utf8mb4
-
-;── Column mappings ──
-alias start         => calldate
-alias accountcode   => accountcode
-alias src           => src
-alias dst           => dst
-alias dcontext      => dcontext
-alias clid          => clid
-alias channel       => channel
-alias dstchannel    => dstchannel
-alias lastapp       => lastapp
-alias lastdata      => lastdata
-alias duration      => duration
-alias billsec       => billsec
-alias disposition   => disposition
-alias amaflags      => amaflags
-alias userfield     => userfield
-alias uniqueid      => uniqueid
-EOF
-ok "cdr_mysql.conf ✓"
-
-# ── http.conf (for AMI/ARI) ───────────────────────────
-cat > /etc/asterisk/http.conf <<'EOF'
-[general]
-enabled         = yes
-bindaddr        = 0.0.0.0
-bindport        = 8088
-prefix          = asterisk
-sessionlimit    = 100
-session_inactivity = 30000
-session_keep_alive = 15000
-EOF
-ok "http.conf ✓"
-
-# ── rtp.conf ──────────────────────────────────────────
-cat > /etc/asterisk/rtp.conf <<'EOF'
-[general]
-rtpstart = 10000
-rtpend   = 20000
-EOF
-ok "rtp.conf ✓"
-
-# Set ownership on all configs
-chown -R asterisk:asterisk /etc/asterisk
-chmod 640 /etc/asterisk/*.conf
-ok "All configs written with correct permissions ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 12: SYSTEMD SERVICE
-# ════════════════════════════════════════════════════
-header "STEP 12: Create systemd Service"
-
-cat > /etc/systemd/system/asterisk.service <<'EOF'
+mkdir -p /etc/kannel /var/log/kannel
+chmod 755 /var/log/kannel
+
+# Initial minimal kannel.conf (will be overwritten by gen-kannel-conf.sh after clients/suppliers are added)
+cat > /etc/kannel/kannel.conf << KANNELEOF
+group = core
+admin-port = 13000
+admin-password = Ariya2015@k
+status-password = Ariya2015@k
+smsbox-port = 13001
+log-file = "/var/log/kannel/bearerbox.log"
+log-level = 1
+box-allow-ip = 127.0.0.1
+access-log = "/var/log/kannel/access.log"
+unified-prefix = "+,00,011"
+
+group = smsbox
+smsbox-id = "net2app_smsbox"
+bearerbox-host = 127.0.0.1
+bearerbox-port = 13001
+sendsms-port = 13013
+sendsms-interface = 127.0.0.1
+log-file = "/var/log/kannel/smsbox.log"
+log-level = 1
+global-sender = "NET2APP"
+max-msgs-per-second = 500
+dlr-url = "http://127.0.0.1:5000/api/dlr?msgid=%i&status=%d&to=%p&from=%A"
+KANNELEOF
+
+cat > /etc/systemd/system/kannel-bearerbox.service << 'EOF'
 [Unit]
-Description=Asterisk PBX
-Documentation=man:asterisk(8)
-Wants=network.target
-After=network.target mysql.service
-
+Description=Kannel Bearerbox
+After=network.target
 [Service]
 Type=simple
-User=asterisk
-Group=asterisk
-Environment=HOME=/var/lib/asterisk
-WorkingDirectory=/var/lib/asterisk
+ExecStart=/usr/sbin/bearerbox /etc/kannel/kannel.conf
+Restart=always
+RestartSec=5
+User=root
+[Install]
+WantedBy=multi-user.target
+EOF
 
-ExecStartPre=/bin/mkdir -p /run/asterisk
-ExecStartPre=/bin/chown -R asterisk:asterisk /run/asterisk
-
-ExecStart=/usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -f
-ExecReload=/usr/sbin/asterisk -rx "core reload"
-ExecStop=/usr/sbin/asterisk -rx "core stop now"
-
-Restart=on-failure
-RestartSec=10
-TimeoutStartSec=60
-TimeoutStopSec=30
-
-LimitNOFILE=65536
-LimitSTACK=240
-LimitCORE=infinity
-
-# Security
-NoNewPrivileges=yes
-ProtectSystem=full
-ProtectHome=yes
-PrivateTmp=yes
-
+cat > /etc/systemd/system/kannel-smsbox.service << 'EOF'
+[Unit]
+Description=Kannel Smsbox
+After=network.target kannel-bearerbox.service
+Requires=kannel-bearerbox.service
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 4
+ExecStart=/usr/sbin/smsbox /etc/kannel/kannel.conf
+Restart=always
+RestartSec=5
+User=root
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable asterisk
-ok "systemd service created and enabled ✓"
+systemctl enable kannel-bearerbox kannel-smsbox
+pkill -f bearerbox 2>/dev/null || true
+pkill -f smsbox   2>/dev/null || true
+sleep 2
+systemctl start kannel-bearerbox; sleep 4
+systemctl start kannel-smsbox; sleep 2
+systemctl is-active kannel-bearerbox && ok "Kannel bearerbox: RUNNING" || info "Kannel bearerbox: check logs"
+systemctl is-active kannel-smsbox    && ok "Kannel smsbox:    RUNNING" || info "Kannel smsbox: check logs"
 
-# ════════════════════════════════════════════════════
-# STEP 13: FIREWALL
-# ════════════════════════════════════════════════════
-header "STEP 13: Configure Firewall"
-
-# SIP
-iptables -I INPUT -p udp --dport 5060 -j ACCEPT 2>/dev/null || true
-iptables -I INPUT -p tcp --dport 5060 -j ACCEPT 2>/dev/null || true
-
-# AMI
-iptables -I INPUT -p tcp --dport 5038 -j ACCEPT 2>/dev/null || true
-
-# HTTP/ARI
-iptables -I INPUT -p tcp --dport 8088 -j ACCEPT 2>/dev/null || true
-
-# RTP
-iptables -I INPUT -p udp --dport 10000:20000 -j ACCEPT 2>/dev/null || true
-
-iptables-save > /etc/iptables.rules 2>/dev/null || true
-
-ufw allow 5060/udp 2>/dev/null || true
-ufw allow 5060/tcp 2>/dev/null || true
-ufw allow 5038/tcp 2>/dev/null || true
-ufw allow 8088/tcp 2>/dev/null || true
-ufw allow 10000:20000/udp 2>/dev/null || true
-
-ok "Firewall configured ✓"
-
-# ════════════════════════════════════════════════════
-# STEP 14: START ASTERISK
-# ════════════════════════════════════════════════════
-header "STEP 14: Start Asterisk"
-
-# Make sure no instance running
-pkill -9 asterisk 2>/dev/null || true
-sleep 3
-
-systemctl start asterisk
-sleep 8
-
-if systemctl is-active --quiet asterisk; then
-    ok "Asterisk: STARTED via systemd ✓"
+header "STEP 5: Node.js 20 + PM2"
+if [ "$HAS_NODE" -eq 0 ]; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+  ok "Node.js $(node -v) installed"
 else
-    info "Systemd start failed - trying direct start..."
-    journalctl -u asterisk --no-pager -n 15
-
-    info "Starting directly as background process..."
-    nohup /usr/sbin/asterisk \
-        -C /etc/asterisk/asterisk.conf \
-        -f \
-        > /var/log/asterisk/startup.log 2>&1 &
-
-    sleep 8
-
-    if pgrep -x asterisk > /dev/null; then
-        ok "Asterisk running directly ✓"
-    else
-        fail "Asterisk failed to start"
-        info "Check logs: tail -50 /var/log/asterisk/messages"
-        tail -30 /var/log/asterisk/messages 2>/dev/null
-        exit 1
-    fi
+  ok "Node.js already installed: $(node -v)"
+fi
+if [ "$HAS_PM2" -eq 0 ]; then
+  npm install -g pm2
+  ok "PM2 installed"
+else
+  ok "PM2 already installed"
 fi
 
-# ════════════════════════════════════════════════════
-# STEP 15: VERIFY INSTALLATION
-# ════════════════════════════════════════════════════
-header "STEP 15: Verification"
+header "STEP 6: Net2app SMPP API Server"
+mkdir -p $API_DIR && cd $API_DIR
+npm init -y 2>/dev/null | tail -1
+npm install express mysql2 cors dotenv 2>&1 | tail -2
+
+cat > $API_DIR/.env << ENVEOF
+PORT=5000
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_DB=net2app
+MYSQL_USER=net2app
+MYSQL_PASS=Ariya2015@db
+KANNEL_ADMIN_URL=http://127.0.0.1:13000
+KANNEL_ADMIN_PASS=Ariya2015@k
+API_TOKEN=Net2app@API2025!
+ENVEOF
+chmod 600 $API_DIR/.env
+
+cat > $API_DIR/gen-kannel-conf.sh << 'GENKEOF'
+#!/bin/bash
+# Auto-generate /etc/kannel/kannel.conf from MariaDB clients + suppliers
+source /opt/net2app-api/.env 2>/dev/null || true
+DB_USER="net2app"
+DB_PASS="Ariya2015@db"
+DB_NAME="net2app"
+KANNEL_PASS="Ariya2015@k"
+CONF=/etc/kannel/kannel.conf
+BAK=/etc/kannel/kannel.conf.bak.$(date +%s)
+[ -f "$CONF" ] && cp "$CONF" "$BAK"
+cat > "$CONF" << COREEOF
+group = core
+admin-port = 13000
+admin-password = Ariya2015@k
+status-password = Ariya2015@k
+smsbox-port = 13001
+log-file = "/var/log/kannel/bearerbox.log"
+log-level = 1
+box-allow-ip = 127.0.0.1
+access-log = "/var/log/kannel/access.log"
+unified-prefix = "+,00,011"
+
+group = smsbox
+smsbox-id = "net2app_smsbox"
+bearerbox-host = 127.0.0.1
+bearerbox-port = 13001
+sendsms-port = 13013
+sendsms-interface = 127.0.0.1
+log-file = "/var/log/kannel/smsbox.log"
+log-level = 1
+global-sender = "NET2APP"
+max-msgs-per-second = 500
+dlr-url = "http://127.0.0.1:5000/api/dlr?msgid=%i&status=%d&to=%p&from=%A"
+COREEOF
+echo "# === SMSC Suppliers auto-gen $(date) ===" >> "$CONF"
+mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e "SELECT id,name,smpp_ip,smpp_port,smpp_username,smpp_password,tps_limit FROM suppliers WHERE connection_type='SMPP' AND status='active'" 2>/dev/null | while IFS=$'\t' read -r id name ip port user pass tps; do
+  tps=${tps:-100}
+  printf "\ngroup = smsc\nsmsc = smpp\nsmsc-id = \"%s\"\nhost = %s\nport = %s\nsmsc-username = \"%s\"\nsmsc-password = \"%s\"\ntransceiver-mode = true\nreconnect-delay = 10\nmax-pending-submits = %s\n" "$name" "$ip" "$port" "$user" "$pass" "$tps" >> "$CONF"
+done
+echo "# === SMPP Clients auto-gen $(date) ===" >> "$CONF"
+mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e "SELECT smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type='SMPP' AND status='active' AND smpp_username IS NOT NULL AND smpp_username<>''" 2>/dev/null | while IFS=$'\t' read -r user pass port tps; do
+  port=${port:-9096}; tps=${tps:-100}
+  printf "\ngroup = smpp-server\nsystem-id = \"%s\"\npassword = \"%s\"\nport = %s\nmax-sms-per-second = %s\n" "$user" "$pass" "$port" "$tps" >> "$CONF"
+done
+kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null || true
+echo "[OK] kannel.conf regenerated from DB and Kannel reloaded"
+GENKEOF
+chmod +x $API_DIR/gen-kannel-conf.sh
+ok "gen-kannel-conf.sh written to $API_DIR"
+
+cat > $API_DIR/server.js << 'SERVEREOF'
+require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+const express  = require('express');
+const mysql    = require('mysql2/promise');
+const { exec } = require('child_process');
+const net      = require('net');
+const cors     = require('cors');
+const fs       = require('fs');
+const app = express();
+app.use(cors()); app.use(express.json()); app.use(express.urlencoded({ extended: true }));
+const pool = mysql.createPool({ host: process.env.MYSQL_HOST||"localhost", port: parseInt(process.env.MYSQL_PORT)||3306, database: process.env.MYSQL_DB||"net2app", user: process.env.MYSQL_USER||"net2app", password: process.env.MYSQL_PASS||"Ariya2015@db", connectionLimit: 20 });
+const auth = (req,res,next) => { const t=(req.headers["authorization"]||"").replace("Bearer ",""); const local=["127.0.0.1","::1","::ffff:127.0.0.1"].includes(req.ip); if(t===process.env.API_TOKEN)return next(); if(req.path.startsWith("/api/dlr")&&local)return next(); if(req.path==="/health")return next(); res.status(401).json({error:"Unauthorized"}); };
+app.use(auth);
+app.get("/health",async(req,res)=>{ try{ await pool.execute("SELECT 1"); res.json({ok:true,db:"connected",ts:new Date().toISOString()}); }catch(e){ res.json({ok:false,db:"disconnected",error:e.message,ts:new Date().toISOString()}); } });
+app.get("/api/dlr",async(req,res)=>{ const{msgid,status}=req.query; const s=parseInt(status); const st=s===1?"delivered":(s===16?"pending":"failed"); try{ await pool.execute("UPDATE sms_log SET status=?,delivery_time=NOW() WHERE message_id=? OR dest_msg_id=?",[st,msgid,msgid]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });
+app.post("/api/dlr",async(req,res)=>{ const{msgid,status}=req.body; const map={DELIVRD:"delivered",UNDELIV:"failed",REJECTD:"rejected",EXPIRED:"failed",DELETED:"failed"}; const st=map[(status||"").toUpperCase()]||(parseInt(status)===1?"delivered":"failed"); try{ await pool.execute("UPDATE sms_log SET status=?,delivery_time=NOW() WHERE message_id=? OR dest_msg_id=?",[st,msgid,msgid]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });
+app.post("/api/smpp/test",(req,res)=>{ const{host,port}=req.body; if(!host||!port)return res.status(400).json({error:"host and port required"}); const sock=new net.Socket(); const tid=setTimeout(()=>{sock.destroy();res.json({connected:false,reason:"Timeout (5s)"});},5000); sock.connect(parseInt(port),host,()=>{clearTimeout(tid);sock.destroy();res.json({connected:true,reason:"TCP OK"});}); sock.on("error",err=>{clearTimeout(tid);res.json({connected:false,reason:err.message});}); });
+app.post("/api/smpp/reload",(req,res)=>{ exec("kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null",(err)=>{ res.json({ok:!err,message:err?err.message:"Kannel reloaded"}); }); });
+app.post("/api/kannel/sync",(req,res)=>{ exec("/opt/net2app-api/gen-kannel-conf.sh",(err,stdout,stderr)=>{ res.json({ok:!err,output:(stdout||"")+(stderr||""),error:err?err.message:null}); }); });
+app.post("/api/smpp/apply-config",(req,res)=>{ const{config}=req.body; if(!config)return res.status(400).json({error:"config required"}); const bak="/etc/kannel/kannel.conf.bak."+Date.now(); try{ if(fs.existsSync("/etc/kannel/kannel.conf"))fs.copyFileSync("/etc/kannel/kannel.conf",bak); fs.writeFileSync("/etc/kannel/kannel.conf",config,"utf8"); exec("kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null",(err)=>{ res.json({ok:true,backup:bak,reloaded:!err}); }); }catch(e){res.status(500).json({error:e.message});} });
+app.post("/api/smpp/user/add",async(req,res)=>{ const{client_id,smpp_username,smpp_password,smpp_port}=req.body; try{ await pool.execute("INSERT INTO smpp_users (client_id,smpp_username,smpp_password,smpp_port,status) VALUES (?,?,?,?,'active') ON DUPLICATE KEY UPDATE smpp_password=?,smpp_port=?,status='active',updated_at=NOW()",[client_id,smpp_username,smpp_password,smpp_port||9096,smpp_password,smpp_port||9096]); res.json({ok:true,message:"SMPP user provisioned: "+smpp_username}); }catch(e){res.status(500).json({error:e.message});} });
+app.post("/api/smpp/user/remove",async(req,res)=>{ const{client_id,smpp_username}=req.body; try{ await pool.execute("UPDATE smpp_users SET status='inactive' WHERE client_id=? AND smpp_username=?",[client_id,smpp_username]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });
+app.get("/api/billing/dashboard",async(req,res)=>{ const{tenant_id="default"}=req.query; try{ const[rows]=await pool.execute("SELECT COUNT(*) AS total_sms, SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed, IFNULL(SUM(cost),0) AS total_cost, IFNULL(SUM(sell_rate),0) AS total_revenue FROM sms_log WHERE tenant_id=? AND DATE(submit_time)=CURDATE()",[tenant_id]); res.json({ok:true,data:rows}); }catch(e){res.status(500).json({error:e.message});} });
+// ── CLIENTS CRUD ─────────────────────────────────────────────
+app.get("/api/clients",async(req,res)=>{ try{ const[rows]=await pool.execute("SELECT * FROM clients ORDER BY created_at DESC"); res.json({ok:true,data:rows}); }catch(e){res.status(500).json({error:e.message});} });
+app.post("/api/clients",async(req,res)=>{ const{id,name,email,contact_person,phone,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,dlr_url,billing_type,force_dlr,force_dlr_timeout,status,credit_limit,currency,balance,tps_limit,allowed_senders,notes,tenant_id}=req.body; if(!name||!email||!connection_type)return res.status(400).json({error:"name, email, connection_type required"}); const uid=id||require("crypto").randomUUID(); try{ await pool.execute("INSERT INTO clients (id,tenant_id,name,email,contact_person,phone,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,billing_type,force_dlr,force_dlr_timeout,status,credit_limit,currency,balance,tps_limit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),email=VALUES(email),connection_type=VALUES(connection_type),smpp_ip=VALUES(smpp_ip),smpp_port=VALUES(smpp_port),smpp_username=VALUES(smpp_username),smpp_password=VALUES(smpp_password),billing_type=VALUES(billing_type),force_dlr=VALUES(force_dlr),force_dlr_timeout=VALUES(force_dlr_timeout),status=VALUES(status),tps_limit=VALUES(tps_limit)",[uid,tenant_id||"default",name,email,contact_person||"",phone||"",connection_type,smpp_ip||"",smpp_port||9096,smpp_username||"",smpp_password||"",billing_type||"submit",force_dlr?1:0,force_dlr_timeout||30,status||"active",credit_limit||0,currency||"USD",balance||0,tps_limit||100]); res.json({ok:true,id:uid}); }catch(e){res.status(500).json({error:e.message});} });
+app.put("/api/clients/:id",async(req,res)=>{ const{name,email,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,billing_type,force_dlr,force_dlr_timeout,status,tps_limit,currency,balance,credit_limit}=req.body; try{ await pool.execute("UPDATE clients SET name=?,email=?,connection_type=?,smpp_ip=?,smpp_port=?,smpp_username=?,smpp_password=?,billing_type=?,force_dlr=?,force_dlr_timeout=?,status=?,tps_limit=?,currency=?,balance=?,credit_limit=? WHERE id=?",[name,email,connection_type,smpp_ip||"",smpp_port||9096,smpp_username||"",smpp_password||"",billing_type||"submit",force_dlr?1:0,force_dlr_timeout||30,status||"active",tps_limit||100,currency||"USD",balance||0,credit_limit||0,req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });
+app.delete("/api/clients/:id",async(req,res)=>{ try{ await pool.execute("DELETE FROM clients WHERE id=?",[req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });
+// ── SUPPLIERS CRUD ────────────────────────────────────────────
+app.get("/api/suppliers",async(req,res)=>{ try{ const[rows]=await pool.execute("SELECT * FROM suppliers ORDER BY created_at DESC"); res.json({ok:true,data:rows}); }catch(e){res.status(500).json({error:e.message});} });
+app.post("/api/suppliers",async(req,res)=>{ const{id,name,category,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,api_key,api_secret,dlr_url,status,priority,tps_limit,notes,tenant_id}=req.body; if(!name||!connection_type)return res.status(400).json({error:"name, connection_type required"}); const uid=id||require("crypto").randomUUID(); try{ await pool.execute("INSERT INTO suppliers (id,tenant_id,name,category,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,api_key,api_secret,dlr_url,status,priority,tps_limit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),category=VALUES(category),connection_type=VALUES(connection_type),smpp_ip=VALUES(smpp_ip),smpp_port=VALUES(smpp_port),smpp_username=VALUES(smpp_username),smpp_password=VALUES(smpp_password),status=VALUES(status),priority=VALUES(priority),tps_limit=VALUES(tps_limit)",[uid,tenant_id||"default",name,category||"sms",connection_type,smpp_ip||"",smpp_port||2775,smpp_username||"",smpp_password||"",http_url||"",http_method||"POST",http_params||"",api_key||"",api_secret||"",dlr_url||"",status||"active",priority||1,tps_limit||100]); res.json({ok:true,id:uid}); }catch(e){res.status(500).json({error:e.message});} });
+app.put("/api/suppliers/:id",async(req,res)=>{ const{name,category,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,status,priority,tps_limit}=req.body; try{ await pool.execute("UPDATE suppliers SET name=?,category=?,connection_type=?,smpp_ip=?,smpp_port=?,smpp_username=?,smpp_password=?,http_url=?,status=?,priority=?,tps_limit=? WHERE id=?",[name,category||"sms",connection_type,smpp_ip||"",smpp_port||2775,smpp_username||"",smpp_password||"",http_url||"",status||"active",priority||1,tps_limit||100,req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });
+app.delete("/api/suppliers/:id",async(req,res)=>{ try{ await pool.execute("DELETE FROM suppliers WHERE id=?",[req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });
+const PORT=process.env.PORT||5000;
+app.listen(PORT,"0.0.0.0",async()=>{ console.log("Net2app API on port "+PORT); try{await pool.execute("SELECT 1");console.log("MariaDB connected");}catch(e){console.error("MariaDB error:",e.message);} });
+SERVEREOF
+
+pm2 delete net2app-api 2>/dev/null || true
+pm2 start $API_DIR/server.js --name net2app-api --cwd $API_DIR
+pm2 save && pm2 startup 2>/dev/null || true
+sleep 3
+curl -s http://127.0.0.1:5000/health | grep -q "ok" && ok "API Server: RUNNING on :5000" || info "API Server: check pm2 logs net2app-api"
+
+header "STEP 6b: WhatsApp/Telegram/IMO Session Servers"
+mkdir -p /opt/net2app-sessions && cd /opt/net2app-sessions
+npm init -y 2>/dev/null | tail -1
+npm install @wppconnect-team/wppconnect express cors qrcode 2>&1 | tail -3
+npm install telegram gramjs express cors qrcode 2>&1 | tail -3
+
+# ── WhatsApp Session Server (WPPConnect) — port 5001 ─────────────
+cat > /opt/net2app-sessions/wppconnect-server.js << 'WPPEOF'
+const wppconnect = require('@wppconnect-team/wppconnect');
+const express = require('express');
+const cors = require('cors');
+const app = express();
+app.use(cors()); app.use(express.json());
+const sessions = {};
+app.post('/session/start', async (req, res) => {
+  const { session_id } = req.body;
+  if (sessions[session_id]?.status === 'CONNECTED') return res.json({ status: 'CONNECTED', session_id });
+  sessions[session_id] = { status: 'STARTING', qr: null };
+  try {
+    const client = await wppconnect.create({
+      session: session_id, headless: true, useChrome: false,
+      catchQR: (base64Qr) => { sessions[session_id].qr = base64Qr; sessions[session_id].status = 'QR_READY'; },
+      statusFind: (status) => { sessions[session_id].status = status; if (status === 'inChat') sessions[session_id].status = 'CONNECTED'; },
+    });
+    sessions[session_id].client = client;
+    sessions[session_id].status = 'CONNECTED';
+  } catch(e) { sessions[session_id] = { status: 'ERROR', error: e.message }; }
+  res.json({ status: sessions[session_id]?.status, session_id });
+});
+app.get('/session/qr', (req, res) => {
+  const s = sessions[req.query.session_id];
+  res.json({ qr: s?.qr || null, status: s?.status || 'NOT_STARTED' });
+});
+app.get('/session/status', (req, res) => {
+  const s = sessions[req.query.session_id];
+  res.json({ status: s?.status || 'NOT_STARTED', connected: s?.status === 'CONNECTED' });
+});
+app.post('/session/logout', async (req, res) => {
+  const s = sessions[req.body.session_id];
+  if (s?.client) await s.client.logout().catch(()=>{});
+  delete sessions[req.body.session_id];
+  res.json({ ok: true });
+});
+app.post('/send', async (req, res) => {
+  const { session_id, to, message } = req.body;
+  const s = sessions[session_id];
+  if (!s?.client) return res.status(400).json({ error: 'Session not connected' });
+  const result = await s.client.sendText(to + '@c.us', message);
+  res.json({ ok: true, id: result?.id });
+});
+app.listen(5001, '0.0.0.0', () => console.log('WA session server on :5001'));
+WPPEOF
+
+# ── Telegram Session Server (GramJS) — port 5002 ──────────────────
+cat > /opt/net2app-sessions/gramjs-server.js << 'TGEOF'
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+const express = require('express');
+const cors = require('cors');
+const qrcode = require('qrcode');
+const app = express();
+app.use(cors()); app.use(express.json());
+const sessions = {};
+const API_ID = parseInt(process.env.TG_API_ID || '0');
+const API_HASH = process.env.TG_API_HASH || '';
+app.post('/session/start', async (req, res) => {
+  const { session_id } = req.body;
+  if (!API_ID || !API_HASH) return res.status(400).json({ error: 'Set TG_API_ID and TG_API_HASH env vars on the server. Get them from https://my.telegram.org' });
+  const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { connectionRetries: 3 });
+  sessions[session_id] = { client, status: 'STARTING', qr: null };
+  await client.connect();
+  try {
+    const result = await client.invoke({ _: 'auth.exportLoginToken', apiId: API_ID, apiHash: API_HASH, exceptIds: [] });
+    const token = Buffer.from(result.token).toString('base64url');
+    const qrUrl = 'tg://login?token=' + token;
+    const qrBase64 = await qrcode.toDataURL(qrUrl, { width: 280 });
+    sessions[session_id] = { client, status: 'QR_READY', qr: qrBase64, token };
+    res.json({ status: 'QR_READY', session_id });
+  } catch(e) { sessions[session_id].status = 'ERROR'; res.json({ status: 'ERROR', error: e.message }); }
+});
+app.get('/session/qr', (req, res) => {
+  const s = sessions[req.query.session_id];
+  res.json({ qr: s?.qr || null, status: s?.status || 'NOT_STARTED' });
+});
+app.get('/session/status', async (req, res) => {
+  const s = sessions[req.query.session_id];
+  if (!s) return res.json({ status: 'NOT_STARTED', connected: false });
+  const connected = await s.client.isUserAuthorized().catch(() => false);
+  if (connected) s.status = 'CONNECTED';
+  res.json({ status: s.status, connected });
+});
+app.post('/session/logout', async (req, res) => {
+  const s = sessions[req.body.session_id];
+  if (s?.client) await s.client.destroy().catch(() => {});
+  delete sessions[req.body.session_id];
+  res.json({ ok: true });
+});
+app.listen(5002, '0.0.0.0', () => console.log('TG session server on :5002'));
+TGEOF
+
+# ── IMO Bridge Server — port 5003 ─────────────────────────────────
+cat > /opt/net2app-sessions/imo-server.js << 'IMOEOF'
+const express = require('express');
+const cors = require('cors');
+const app = express();
+app.use(cors()); app.use(express.json());
+app.post('/session/start', (req, res) => res.json({ status: 'IMO_NOT_IMPLEMENTED', message: 'IMO Bridge requires manual setup. Contact support.' }));
+app.get('/session/qr', (req, res) => res.json({ qr: null, status: 'NOT_STARTED' }));
+app.get('/session/status', (req, res) => res.json({ status: 'NOT_STARTED', connected: false }));
+app.post('/session/logout', (req, res) => res.json({ ok: true }));
+app.listen(5003, '0.0.0.0', () => console.log('IMO bridge placeholder on :5003'));
+IMOEOF
+
+# ── Open session server ports in UFW ──────────────────────────────
+ufw allow 5001/tcp comment "WA WPPConnect session"
+ufw allow 5002/tcp comment "TG GramJS session"
+ufw allow 5003/tcp comment "IMO bridge session"
+
+# ── Start with PM2 ────────────────────────────────────────────────
+pm2 delete wa-session tg-session imo-session 2>/dev/null || true
+pm2 start /opt/net2app-sessions/wppconnect-server.js --name wa-session
+pm2 start /opt/net2app-sessions/gramjs-server.js --name tg-session
+pm2 start /opt/net2app-sessions/imo-server.js --name imo-session
+pm2 save
 
 sleep 3
+curl -s http://127.0.0.1:5001/session/status?session_id=test | grep -q "status" && ok "WA session server: RUNNING on :5001" || info "WA session: check pm2 logs wa-session"
+curl -s http://127.0.0.1:5002/session/status?session_id=test | grep -q "status" && ok "TG session server: RUNNING on :5002" || info "TG session: check pm2 logs tg-session"
 
-echo ""
-echo "── Service Status ──"
-systemctl is-active --quiet asterisk \
-    && ok "Service: RUNNING ✓" \
-    || info "Service: $(systemctl is-active asterisk)"
+info "For Telegram QR, set env vars on the server:"
+info "  export TG_API_ID=YOUR_ID TG_API_HASH=YOUR_HASH"
+info "  Get them from: https://my.telegram.org → API Development Tools"
+info "  Then restart: pm2 restart tg-session"
 
-echo ""
-echo "── Process ──"
-pgrep -x asterisk > /dev/null \
-    && ok "Process: $(pgrep -x asterisk) ✓" \
-    || fail "No asterisk process found"
+header "STEP 7: Clone & Build Net2app Frontend (with Base44 env)"
+if [ -d "$DEPLOY_DIR/.git" ]; then
+  cd $DEPLOY_DIR && git fetch origin && git reset --hard origin/$BRANCH
+  ok "Repository updated"
+else
+  git clone $GITHUB_REPO $DEPLOY_DIR && cd $DEPLOY_DIR
+  ok "Repository cloned"
+fi
+cd $DEPLOY_DIR
 
-echo ""
-echo "── Version ──"
-asterisk -V && ok "Version OK ✓"
+# Inject Base44 env vars so Vite embeds them at build time
+cat > $DEPLOY_DIR/.env << VITEEOF
+VITE_BASE44_APP_ID=${VITE_APP_ID}
+VITE_BASE44_APP_BASE_URL=${VITE_APP_BASE_URL}
+VITE_BASE44_FUNCTIONS_VERSION=${VITE_FUNCTIONS_VERSION}
+VITEEOF
+ok "Base44 .env written → $DEPLOY_DIR/.env"
 
-echo ""
-echo "── Ports ──"
-ss -tlunp | grep -E "5060|5038|8088" && ok "Ports listening ✓"
+npm install --production=false
+npm run build
+# Deploy built assets — Nginx will serve from WEBROOT
+mkdir -p $WEBROOT
+rm -rf $WEBROOT/*
+cp -r $DEPLOY_DIR/dist/* $WEBROOT/
+ok "Frontend built and deployed to $WEBROOT"
 
-echo ""
-echo "── CLI Test ──"
-asterisk -rx "core show version" 2>/dev/null && ok "CLI working ✓"
+header "STEP 8: Nginx — SPA + API proxy"
+if [ "$HAS_NGINX" -eq 0 ]; then
+  apt-get install -y nginx
+  ok "Nginx installed"
+else
+  info "Nginx already installed — updating config"
+fi
+cat > /etc/nginx/sites-available/net2app << 'NGINXEOF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
 
-echo ""
-echo "── SIP Peers ──"
-asterisk -rx "sip show peers" 2>/dev/null | tail -5 && ok "SIP loaded ✓"
+    # Serve React SPA from dist output
+    root /var/www/html;
+    index index.html;
 
-echo ""
-echo "── PJSIP Endpoints ──"
-asterisk -rx "pjsip show endpoints" 2>/dev/null | tail -10
+    # API reverse proxy — must come BEFORE the SPA catch-all
+    location /api/ {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 60s;
+        add_header Access-Control-Allow-Origin * always;
+        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+        if ($request_method = OPTIONS) { return 204; }
+    }
 
-echo ""
-echo "── Modules Loaded ──"
-asterisk -rx "module show" 2>/dev/null | tail -3
+    # SPA fallback — send all non-file requests to index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
 
-echo ""
-echo "── AMI Test ──"
-sleep 1
-AMI_RESULT=$(echo -e "Action: Login\r\nUsername: admin\r\nSecret: ${AMI_PASSWORD}\r\n\r\nAction: Logoff\r\n\r\n" | \
-    nc -w3 127.0.0.1 5038 2>/dev/null)
-echo "$AMI_RESULT" | grep -q "Authentication accepted" \
-    && ok "AMI: working ✓" \
-    || info "AMI: not ready (try again in a moment)"
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|ico|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
 
-# ════════════════════════════════════════════════════
-# STEP 16: SAVE CREDENTIALS
-# ════════════════════════════════════════════════════
-header "STEP 16: Save Credentials"
+    gzip on;
+    gzip_types text/plain application/javascript application/json text/css application/xml;
+    gzip_min_length 1024;
+}
+NGINXEOF
+ln -sf /etc/nginx/sites-available/net2app /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl enable nginx && systemctl reload nginx
+ok "Nginx configured — SPA + /api/ proxy"
 
-cat > /root/.asterisk_credentials <<EOF
-# ════════════════════════════════════════════════════
-#  ASTERISK CREDENTIALS - Generated $(date)
-#  KEEP THIS FILE SECURE!
-# ════════════════════════════════════════════════════
+header "STEP 9: UFW Firewall"
+[ "$HAS_UFW" -eq 0 ] && apt-get install -y ufw && ok "UFW installed" || info "UFW already present"
+ufw allow 22/tcp       comment "SSH"
+ufw allow 80/tcp       comment "HTTP"
+ufw allow 443/tcp      comment "HTTPS"
+ufw allow 5060/udp     comment "SIP UDP"
+ufw allow 5060/tcp     comment "SIP TCP"
+ufw allow 10000:20000/udp comment "RTP Audio"
+ufw allow 9095:9200/tcp   comment "Tenant SMPP ports"
+ufw allow 4000:6000/tcp   comment "Tenant HTTP panels"
+ufw allow from 127.0.0.1 to any port 13000 comment "Kannel admin"
+ufw allow from 127.0.0.1 to any port 13001 comment "Kannel smsbox"
+ufw allow from 127.0.0.1 to any port 13013 comment "Kannel sendsms"
+ufw deny 3306          comment "MariaDB localhost only"
+echo "y" | ufw enable 2>/dev/null || true
+ok "UFW Firewall configured"
 
-# Server
-SERVER_IP=$(hostname -I | awk '{print $1}')
-HOSTNAME=$(hostname)
-
-# Asterisk
-ASTERISK_VERSION=$(asterisk -V 2>/dev/null)
-INSTALL_DIR=${ASTERISK_SRC}
-CONFIG_DIR=/etc/asterisk
-LOG_DIR=/var/log/asterisk
-
-# SIP Extensions
-EXT_1001_USER=1001
-EXT_1001_PASS=${SIP_PASSWORD}
-EXT_1002_USER=1002
-EXT_1002_PASS=${SIP_PASSWORD}
-EXT_1003_USER=1003
-EXT_1003_PASS=${SIP_PASSWORD}
-
-# AMI (Manager Interface)
-AMI_HOST=127.0.0.1
-AMI_PORT=5038
-AMI_USER=admin
-AMI_PASS=${AMI_PASSWORD}
-AMI_USER2=net2app
-AMI_PASS2=${AMI_PASSWORD}
-
-# Voicemail
-VM_PASS=${VM_PASSWORD}
-
-# HTTP/ARI
-ARI_HOST=127.0.0.1
-ARI_PORT=8088
-
-# Ports
-SIP_PORT=5060
-AMI_PORT=5038
-HTTP_PORT=8088
-RTP_RANGE=10000-20000
-
-# Service Numbers
-ECHO_TEST=9999
-DEMO_PLAYBACK=9998
-VOICEMAIL_CHECK=9997
-TIME_DATE=8888
-
-# MySQL CDR
-MYSQL_HOST=localhost
-MYSQL_DB=${MYSQL_DB}
-MYSQL_USER=${MYSQL_USER}
-MYSQL_PASS=${MYSQL_PASS}
+header "STEP 10: Fail2Ban"
+[ "$HAS_FAIL2BAN" -eq 0 ] && apt-get install -y fail2ban && ok "Fail2Ban installed" || info "Fail2Ban already present"
+cat > /etc/fail2ban/jail.local << 'EOF'
+[DEFAULT]
+bantime  = 3600
+findtime = 600
+maxretry = 5
+[sshd]
+enabled = true
+port    = 22
+maxretry = 3
+bantime  = 86400
 EOF
+systemctl enable fail2ban && systemctl restart fail2ban
+ok "Fail2Ban configured"
 
-chmod 600 /root/.asterisk_credentials
-ok "Credentials saved: /root/.asterisk_credentials ✓"
+header "STEP 11: Initial Kannel Config Sync from DB"
+bash $API_DIR/gen-kannel-conf.sh && ok "kannel.conf synced from DB" || info "Sync skipped (no SMPP clients/suppliers in DB yet — run after adding them)"
 
-# ════════════════════════════════════════════════════
-# FINAL SUMMARY
-# ════════════════════════════════════════════════════
-echo ""
-echo "════════════════════════════════════════════════"
-echo -e "${GREEN}  ✅ ASTERISK INSTALLATION COMPLETE!${NC}"
-echo "════════════════════════════════════════════════"
-echo ""
-echo -e "${CYAN}  Status:${NC}"
-echo "    Service:  $(systemctl is-active asterisk)"
-echo "    Version:  $(asterisk -V 2>/dev/null)"
-echo "    PID:      $(pgrep -x asterisk | head -1)"
-echo ""
-echo -e "${CYAN}  Ports Listening:${NC}"
-echo "    SIP:   5060 (UDP/TCP)"
-echo "    AMI:   5038 (TCP)"
-echo "    HTTP:  8088 (TCP)"
-echo "    RTP:   10000-20000 (UDP)"
-echo ""
-echo -e "${CYAN}  Extensions:${NC}"
-echo "    1001 / ${SIP_PASSWORD}"
-echo "    1002 / ${SIP_PASSWORD}"
-echo "    1003 / ${SIP_PASSWORD}"
-echo ""
-echo -e "${CYAN}  Service Numbers:${NC}"
-echo "    9999 - Echo test"
-echo "    9998 - Demo playback"
-echo "    9997 - Voicemail check"
-echo "    8888 - Date/time"
-echo ""
-echo -e "${CYAN}  AMI Connection:${NC}"
-echo "    Host: 127.0.0.1:5038"
-echo "    User: admin / ${AMI_PASSWORD}"
-echo ""
-echo -e "${CYAN}  Useful Commands:${NC}"
-echo "    asterisk -rvvv                    # Interactive CLI"
-echo "    asterisk -rx 'core show version'"
-echo "    asterisk -rx 'sip show peers'"
-echo "    asterisk -rx 'pjsip show endpoints'"
-echo "    asterisk -rx 'core show channels'"
-echo "    asterisk -rx 'manager show connected'"
-echo "    asterisk -rx 'core reload'"
-echo ""
-echo -e "${CYAN}  Logs:${NC}"
-echo "    journalctl -u asterisk -f"
-echo "    tail -f /var/log/asterisk/messages"
-echo "    tail -f /var/log/asterisk/full"
-echo ""
-echo -e "${CYAN}  Service Management:${NC}"
-echo "    systemctl status asterisk"
-echo "    systemctl restart asterisk"
-echo "    systemctl stop asterisk"
-echo ""
-echo -e "${CYAN}  Test AMI:${NC}"
-echo "    echo -e 'Action: Login\\r\\nUsername: admin\\r\\nSecret: ${AMI_PASSWORD}\\r\\n\\r\\n' | nc 127.0.0.1 5038"
-echo ""
-echo -e "${CYAN}  Test SIP Connection (from softphone):${NC}"
-echo "    Server:   $(hostname -I | awk '{print $1}'):5060"
-echo "    Username: 1001"
-echo "    Password: ${SIP_PASSWORD}"
-echo ""
-echo -e "${CYAN}  Credentials File:${NC}"
-echo "    cat /root/.asterisk_credentials"
-echo "════════════════════════════════════════════════"
+header "STEP 12: Save Credentials"
+cat > /root/.net2app_credentials << CREDEOF
+# ═══════════════════════════════════════════════════════════════
+#  Net2app Server Credentials
+# ═══════════════════════════════════════════════════════════════
+#  SSH
+#  Host:     192.95.36.154
+#  User:     root
+#  Password: Ariya2015@db
+#
+#  MariaDB
+#  Root password:  Ariya2015@db
+#  App DB user:    net2app
+#  App DB pass:    Ariya2015@db
+#  Database name:  net2app
+#
+#  Kannel
+#  Admin/Status password: Ariya2015@k
+#  Admin URL:  http://127.0.0.1:13000
+#
+#  Net2app API
+#  URL:   http://127.0.0.1:5000
+#  Token: Net2app@API2025!
+#
+#  Kannel Config Sync
+#  Run: bash /opt/net2app-api/gen-kannel-conf.sh
+# ═══════════════════════════════════════════════════════════════
+DB_HOST=localhost
+DB_NAME=net2app
+DB_USER=net2app
+DB_PASS=Ariya2015@db
+KANNEL_ADMIN=http://127.0.0.1:13000
+KANNEL_ADMIN_PASS=Ariya2015@k
+API_URL=http://127.0.0.1:5000
+API_TOKEN=Net2app@API2025!
+CREDEOF
+chmod 600 /root/.net2app_credentials
 
-Run Installation
-# Switch to root
-sudo -i
+header "STEP 13: Health Check & Full Summary"
 
-# Save and run the script
-nano install_asterisk_full.sh
-# Paste the entire script above
+# Service status
+systemctl is-active nginx            && ok "Nginx:       RUNNING" || echo "  [!] Nginx: STOPPED"
+systemctl is-active mariadb          && ok "MariaDB:     RUNNING" || echo "  [!] MariaDB: STOPPED"
+systemctl is-active kannel-bearerbox && ok "Bearerbox:   RUNNING" || echo "  [!] Bearerbox: STOPPED"
+systemctl is-active kannel-smsbox    && ok "Smsbox:      RUNNING" || echo "  [!] Smsbox: STOPPED"
+pm2 list 2>/dev/null | grep net2app-api | grep -q online && ok "API Server:  RUNNING" || echo "  [!] API Server: STOPPED"
+systemctl is-active fail2ban         && ok "Fail2Ban:    RUNNING" || echo "  [!] Fail2Ban: STOPPED"
+curl -s http://127.0.0.1:5000/health | grep -q "ok" && ok "API /health: OK" || echo "  [!] API /health: FAIL"
 
-chmod +x install_asterisk_full.sh
-bash install_asterisk_full.sh 2>&1 | tee /var/log/asterisk-install.log
-What This Fixes
-✅ Permission denied errors        - All dirs created with correct ownership
-✅ Phoneprov directory missing      - Pre-created before make samples
-✅ Voicemail INBOX missing          - All voicemail dirs created
-✅ Segfault on start                - Problematic modules disabled
-✅ /usr/sbin/asterisk not found     - Proper compile + install
-✅ User 'asterisk' missing          - Created BEFORE install
-✅ Run dir issues                   - Uses /run/asterisk (modern)
-✅ Module load errors               - All bad modules in noload list
-✅ AMI not working                  - Properly configured
-✅ MySQL CDR setup                  - Pre-configured for net2app DB
-After Install - Verify
-# All in one verification
-asterisk -rx "core show version"
-asterisk -rx "sip show peers"
-asterisk -rx "pjsip show endpoints"
-ss -tlunp | grep -E "5060|5038|8088"
-echo -e "Action: Login\r\nUsername: admin\r\nSecret: Telco1988\r\n\r\n" | nc 127.0.0.1 5038
-SIP Softphone Setup (Zoiper, MicroSIP, etc.)
-Server:    154.95.36.154 (or your IP)
-Port:      5060
-Protocol:  UDP
-Username:  1001
-Password:  Telco1988
-Domain:    154.95.36.154
+# Auto-detect Base44 App ID from built frontend files
+DETECTED_APP_ID=$(grep -r "appId" /var/www/html/assets/*.js 2>/dev/null | grep -oP '(?<=appId:")[^"]+' | head -1 || true)
+[ -z "$DETECTED_APP_ID" ] && DETECTED_APP_ID=$(grep -r "VITE_BASE44_APP_ID" /opt/net2app/.env 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "NOT SET — set VITE_APP_ID in script and rebuild")
 
-Test: Dial 9999 for echo test
-**Docs & Support**
+SERVER_IP=$(hostname -I | awk '{print $1}')
 
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║          NET2APP — DEPLOYMENT COMPLETE SUMMARY               ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  URLS                                                        ║"
+echo "║  App:   http://$SERVER_IP                                    "
+echo "║  API:   http://$SERVER_IP:5000                               "
+echo "║  Kannel Admin: http://127.0.0.1:13000 (localhost only)       ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  SSH ACCESS                                                  ║"
+echo "║  Host:     192.95.36.154                                     "
+echo "║  User:     root                                              "
+echo "║  Password: Ariya2015@db                                     "
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  DATABASE (MariaDB)                                          ║"
+echo "║  Root pass:  Ariya2015@db                                 "
+echo "║  App user:   net2app                                  "
+echo "║  App pass:   Ariya2015@db                                  "
+echo "║  DB name:    net2app                                     "
+echo "║  Port:       3306 (localhost only)                           "
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  KANNEL SMS GATEWAY                                          ║"
+echo "║  Admin/Status pass: Ariya2015@k                          "
+echo "║  Admin port:  13000                                          "
+echo "║  Smsbox port: 13001                                          "
+echo "║  SendSMS port:13013                                          "
+echo "║  Config sync: bash /opt/net2app-api/gen-kannel-conf.sh       ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  NET2APP API                                                 ║"
+echo "║  Port:  5000                                                 "
+echo "║  Token: Net2app@API2025!                                        "
+echo "║  Endpoints:                                                  ║"
+echo "║    GET  /health              — liveness check                ║"
+echo "║    POST /api/kannel/sync     — sync kannel.conf from DB      ║"
+echo "║    POST /api/smpp/reload     — HUP bearerbox                 ║"
+echo "║    POST /api/smpp/test       — TCP connectivity test         ║"
+echo "║    GET  /api/dlr             — DLR callback (Kannel→API)     ║"
+echo "║    GET  /api/billing/dashboard — today billing summary       ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  BASE44 FRONTEND CONFIG                                      ║"
+echo "║  VITE_BASE44_APP_ID:           $DETECTED_APP_ID              "
+echo "║  VITE_BASE44_APP_BASE_URL:     https://api.base44.com               "
+echo "║  VITE_BASE44_FUNCTIONS_VERSION:v3              "
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  ► SET THESE IN BASE44 Dashboard → Settings → Secrets:       ║"
+echo "║  SERVER_API_URL    = http://$SERVER_IP:5000                  "
+echo "║  SERVER_API_TOKEN  = Net2app@API2025!                           "
+echo "║  KANNEL_ADMIN_URL  = http://$SERVER_IP:13000                 "
+echo "║  KANNEL_ADMIN_PASS = Ariya2015@k                         "
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  ► AFTER ADDING CLIENTS/SUPPLIERS IN UI:                     ║"
+echo "║    bash /opt/net2app-api/gen-kannel-conf.sh                  ║"
+echo "║  ► Full credentials saved to:                                ║"
+echo "║    cat /root/.net2app_credentials                            ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
 
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+Standalone Kannel Sync Script — gen-kannel-conf.sh
+
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════
+#  gen-kannel-conf.sh — Read clients/suppliers from MariaDB
+#  and write /etc/kannel/kannel.conf then reload Kannel.
+#  Run: bash /opt/net2app-api/gen-kannel-conf.sh
+# ═══════════════════════════════════════════════════════════════════
+
+DB_HOST=localhost
+DB_USER="net2app"
+DB_PASS="Ariya2015@db"
+DB_NAME="net2app"
+KANNEL_PASS="Ariya2015@k"
+CONF=/etc/kannel/kannel.conf
+BAK=/etc/kannel/kannel.conf.bak.$(date +%s)
+
+[ -f "$CONF" ] && cp "$CONF" "$BAK"
+
+# ── Write core + smsbox blocks ──────────────────────────────────────
+cat > "$CONF" << COREEOF
+group = core
+admin-port = 13000
+admin-password = Ariya2015@k
+status-password = Ariya2015@k
+smsbox-port = 13001
+log-file = "/var/log/kannel/bearerbox.log"
+log-level = 1
+box-allow-ip = 127.0.0.1
+access-log = "/var/log/kannel/access.log"
+unified-prefix = "+,00,011"
+
+group = smsbox
+smsbox-id = "net2app_smsbox"
+bearerbox-host = 127.0.0.1
+bearerbox-port = 13001
+sendsms-port = 13013
+sendsms-interface = 127.0.0.1
+log-file = "/var/log/kannel/smsbox.log"
+log-level = 1
+global-sender = "NET2APP"
+max-msgs-per-second = 500
+dlr-url = "http://127.0.0.1:5000/api/dlr?msgid=%i&status=%d&to=%p&from=%A"
+COREEOF
+
+# ── Append SMPP supplier (smsc) blocks from DB ──────────────────────
+echo "# === SMSC Suppliers (auto-generated $(date)) ===" >> "$CONF"
+
+mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e \
+  "SELECT id,name,smpp_ip,smpp_port,smpp_username,smpp_password,tps_limit FROM suppliers WHERE connection_type='SMPP' AND status='active'" | \
+while IFS=$'\t' read -r id name ip port user pass tps; do
+  tps=${tps:-100}
+  cat >> "$CONF" << EOF
+
+group = smsc
+smsc = smpp
+smsc-id = "$name"
+host = $ip
+port = $port
+smsc-username = "$user"
+smsc-password = "$pass"
+transceiver-mode = true
+reconnect-delay = 10
+max-pending-submits = $tps
+EOF
+done
+
+# ── Append SMPP client (smpp-server) blocks from DB ─────────────────
+echo "# === SMPP Clients (auto-generated $(date)) ===" >> "$CONF"
+
+mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e \
+  "SELECT id,smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type='SMPP' AND status='active' AND smpp_username IS NOT NULL AND smpp_username<>''" | \
+while IFS=$'\t' read -r id user pass port tps; do
+  port=${port:-9096}
+  tps=${tps:-100}
+  cat >> "$CONF" << EOF
+
+group = smpp-server
+system-id = "$user"
+password = "$pass"
+port = $port
+max-sms-per-second = $tps
+EOF
+done
+
+# ── Reload Kannel ───────────────────────────────────────────────────
+kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null || true
+echo "[OK] kannel.conf updated and Kannel reloaded → $CONF"
+echo "[OK] Backup saved → $BAK"
