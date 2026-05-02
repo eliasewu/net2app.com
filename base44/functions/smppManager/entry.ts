@@ -251,6 +251,30 @@ ${clientBlocks.join('\n\n')}
       return Response.json({ ok: true, message: `Client SMPP user ${smpp_username} removed` });
     }
 
+    // ── SYNC CLIENT to Debian server DB ─────────────────────────
+    if (action === 'sync_client') {
+      const { client } = body;
+      if (!client) return Response.json({ error: 'client required' }, { status: 400 });
+      try {
+        const result = await serverApiRequest('/api/clients', 'POST', client);
+        return Response.json({ ok: true, result });
+      } catch (e) {
+        return Response.json({ ok: false, error: e.message });
+      }
+    }
+
+    // ── SYNC SUPPLIER to Debian server DB ────────────────────────
+    if (action === 'sync_supplier') {
+      const { supplier } = body;
+      if (!supplier) return Response.json({ error: 'supplier required' }, { status: 400 });
+      try {
+        const result = await serverApiRequest('/api/suppliers', 'POST', supplier);
+        return Response.json({ ok: true, result });
+      } catch (e) {
+        return Response.json({ ok: false, error: e.message });
+      }
+    }
+
     return Response.json({ error: 'Unknown action' }, { status: 400 });
 
   } catch (error) {

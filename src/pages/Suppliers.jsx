@@ -68,12 +68,24 @@ export default function Suppliers() {
 
   const createMut = useMutation({
     mutationFn: (data) => base44.entities.Supplier.create(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['suppliers'] }); setDialogOpen(false); toast.success("Supplier created"); },
+    onSuccess: (created, data) => {
+      qc.invalidateQueries({ queryKey: ['suppliers'] });
+      setDialogOpen(false);
+      setEditing(null);
+      toast.success("Supplier created successfully!");
+      base44.functions.invoke('smppManager', { action: 'sync_supplier', supplier: { ...data, id: created?.id || data.id } }).catch(() => {});
+    },
   });
 
   const updateMut = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Supplier.update(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['suppliers'] }); setDialogOpen(false); toast.success("Supplier updated"); },
+    onSuccess: (_, { id, data }) => {
+      qc.invalidateQueries({ queryKey: ['suppliers'] });
+      setDialogOpen(false);
+      setEditing(null);
+      toast.success("Supplier updated successfully!");
+      base44.functions.invoke('smppManager', { action: 'sync_supplier', supplier: { ...data, id } }).catch(() => {});
+    },
   });
 
   const deleteMut = useMutation({

@@ -514,6 +514,16 @@ const buildScript = (c) => [
   'app.post("/api/smpp/user/add",async(req,res)=>{ const{client_id,smpp_username,smpp_password,smpp_port}=req.body; try{ await pool.execute("INSERT INTO smpp_users (client_id,smpp_username,smpp_password,smpp_port,status) VALUES (?,?,?,?,\'active\') ON DUPLICATE KEY UPDATE smpp_password=?,smpp_port=?,status=\'active\',updated_at=NOW()",[client_id,smpp_username,smpp_password,smpp_port||9096,smpp_password,smpp_port||9096]); res.json({ok:true,message:"SMPP user provisioned: "+smpp_username}); }catch(e){res.status(500).json({error:e.message});} });',
   'app.post("/api/smpp/user/remove",async(req,res)=>{ const{client_id,smpp_username}=req.body; try{ await pool.execute("UPDATE smpp_users SET status=\'inactive\' WHERE client_id=? AND smpp_username=?",[client_id,smpp_username]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });',
   'app.get("/api/billing/dashboard",async(req,res)=>{ const{tenant_id="default"}=req.query; try{ const[rows]=await pool.execute("SELECT COUNT(*) AS total_sms, SUM(CASE WHEN status=\'delivered\' THEN 1 ELSE 0 END) AS delivered, SUM(CASE WHEN status=\'failed\' THEN 1 ELSE 0 END) AS failed, IFNULL(SUM(cost),0) AS total_cost, IFNULL(SUM(sell_rate),0) AS total_revenue FROM sms_log WHERE tenant_id=? AND DATE(submit_time)=CURDATE()",[tenant_id]); res.json({ok:true,data:rows}); }catch(e){res.status(500).json({error:e.message});} });',
+  '// ── CLIENTS CRUD ─────────────────────────────────────────────',
+  'app.get("/api/clients",async(req,res)=>{ try{ const[rows]=await pool.execute("SELECT * FROM clients ORDER BY created_at DESC"); res.json({ok:true,data:rows}); }catch(e){res.status(500).json({error:e.message});} });',
+  'app.post("/api/clients",async(req,res)=>{ const{id,name,email,contact_person,phone,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,dlr_url,billing_type,force_dlr,force_dlr_timeout,status,credit_limit,currency,balance,tps_limit,allowed_senders,notes,tenant_id}=req.body; if(!name||!email||!connection_type)return res.status(400).json({error:"name, email, connection_type required"}); const uid=id||require("crypto").randomUUID(); try{ await pool.execute("INSERT INTO clients (id,tenant_id,name,email,contact_person,phone,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,billing_type,force_dlr,force_dlr_timeout,status,credit_limit,currency,balance,tps_limit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),email=VALUES(email),connection_type=VALUES(connection_type),smpp_ip=VALUES(smpp_ip),smpp_port=VALUES(smpp_port),smpp_username=VALUES(smpp_username),smpp_password=VALUES(smpp_password),billing_type=VALUES(billing_type),force_dlr=VALUES(force_dlr),force_dlr_timeout=VALUES(force_dlr_timeout),status=VALUES(status),tps_limit=VALUES(tps_limit)",[uid,tenant_id||"default",name,email,contact_person||"",phone||"",connection_type,smpp_ip||"",smpp_port||9096,smpp_username||"",smpp_password||"",billing_type||"submit",force_dlr?1:0,force_dlr_timeout||30,status||"active",credit_limit||0,currency||"USD",balance||0,tps_limit||100]); res.json({ok:true,id:uid}); }catch(e){res.status(500).json({error:e.message});} });',
+  'app.put("/api/clients/:id",async(req,res)=>{ const{name,email,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,billing_type,force_dlr,force_dlr_timeout,status,tps_limit,currency,balance,credit_limit}=req.body; try{ await pool.execute("UPDATE clients SET name=?,email=?,connection_type=?,smpp_ip=?,smpp_port=?,smpp_username=?,smpp_password=?,billing_type=?,force_dlr=?,force_dlr_timeout=?,status=?,tps_limit=?,currency=?,balance=?,credit_limit=? WHERE id=?",[name,email,connection_type,smpp_ip||"",smpp_port||9096,smpp_username||"",smpp_password||"",billing_type||"submit",force_dlr?1:0,force_dlr_timeout||30,status||"active",tps_limit||100,currency||"USD",balance||0,credit_limit||0,req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });',
+  'app.delete("/api/clients/:id",async(req,res)=>{ try{ await pool.execute("DELETE FROM clients WHERE id=?",[req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });',
+  '// ── SUPPLIERS CRUD ────────────────────────────────────────────',
+  'app.get("/api/suppliers",async(req,res)=>{ try{ const[rows]=await pool.execute("SELECT * FROM suppliers ORDER BY created_at DESC"); res.json({ok:true,data:rows}); }catch(e){res.status(500).json({error:e.message});} });',
+  'app.post("/api/suppliers",async(req,res)=>{ const{id,name,category,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,api_key,api_secret,dlr_url,status,priority,tps_limit,notes,tenant_id}=req.body; if(!name||!connection_type)return res.status(400).json({error:"name, connection_type required"}); const uid=id||require("crypto").randomUUID(); try{ await pool.execute("INSERT INTO suppliers (id,tenant_id,name,category,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,api_key,api_secret,dlr_url,status,priority,tps_limit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),category=VALUES(category),connection_type=VALUES(connection_type),smpp_ip=VALUES(smpp_ip),smpp_port=VALUES(smpp_port),smpp_username=VALUES(smpp_username),smpp_password=VALUES(smpp_password),status=VALUES(status),priority=VALUES(priority),tps_limit=VALUES(tps_limit)",[uid,tenant_id||"default",name,category||"sms",connection_type,smpp_ip||"",smpp_port||2775,smpp_username||"",smpp_password||"",http_url||"",http_method||"POST",http_params||"",api_key||"",api_secret||"",dlr_url||"",status||"active",priority||1,tps_limit||100]); res.json({ok:true,id:uid}); }catch(e){res.status(500).json({error:e.message});} });',
+  'app.put("/api/suppliers/:id",async(req,res)=>{ const{name,category,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,status,priority,tps_limit}=req.body; try{ await pool.execute("UPDATE suppliers SET name=?,category=?,connection_type=?,smpp_ip=?,smpp_port=?,smpp_username=?,smpp_password=?,http_url=?,status=?,priority=?,tps_limit=? WHERE id=?",[name,category||"sms",connection_type,smpp_ip||"",smpp_port||2775,smpp_username||"",smpp_password||"",http_url||"",status||"active",priority||1,tps_limit||100,req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });',
+  'app.delete("/api/suppliers/:id",async(req,res)=>{ try{ await pool.execute("DELETE FROM suppliers WHERE id=?",[req.params.id]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });',
   'const PORT=process.env.PORT||5000;',
   'app.listen(PORT,"0.0.0.0",async()=>{ console.log("Net2app API on port "+PORT); try{await pool.execute("SELECT 1");console.log("MariaDB connected");}catch(e){console.error("MariaDB error:",e.message);} });',
   'SERVEREOF',
@@ -993,7 +1003,7 @@ export default function FullDeployScript() {
         repo: "eliasewu/net2app.com",
         path: "deploy.sh",
         sha: sha || undefined,
-        message: "Update deploy.sh — 13-step deploy with gen-kannel-conf + fixed nginx + correct passwords",
+        message: "Update deploy.sh — full CRUD API for clients/suppliers + MariaDB fix + Kannel sync",
         content: SCRIPT,
       });
       // Also push the standalone kannel sync script
@@ -1133,6 +1143,82 @@ export default function FullDeployScript() {
                 <p>source ~/.bashrc</p>
                 <p>pm2 restart tg-session</p>
               </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── MANUAL DB CONNECT ── */}
+      <Card className="border-purple-300 bg-purple-50">
+        <CardContent className="p-4 space-y-3">
+          <p className="text-sm font-bold text-purple-800 flex items-center gap-2">
+            <Database className="w-4 h-4" /> Manual MariaDB Connect — Verify / Fix DB Access
+          </p>
+          <div className="grid md:grid-cols-2 gap-3 text-xs">
+            <div className="bg-white rounded border border-purple-200 p-3 space-y-2">
+              <p className="font-bold text-purple-800">SSH into server then run:</p>
+              <div className="bg-gray-900 rounded p-2 font-mono text-green-400 text-xs space-y-1">
+                <p><span className="text-gray-400"># Connect as root:</span></p>
+                <p className="flex justify-between items-center">
+                  <span>{`mysql -u root -p'${CREDS.dbRootPass}' ${CREDS.dbName}`}</span>
+                  <button onClick={() => copyLine(`mysql -u root -p'${CREDS.dbRootPass}' ${CREDS.dbName}`)} className="text-gray-400 hover:text-white ml-2 shrink-0"><Copy className="w-3 h-3" /></button>
+                </p>
+                <p><span className="text-gray-400"># Connect as app user:</span></p>
+                <p className="flex justify-between items-center">
+                  <span>{`mysql -u ${CREDS.dbAppUser} -p'${CREDS.dbAppPass}' ${CREDS.dbName}`}</span>
+                  <button onClick={() => copyLine(`mysql -u ${CREDS.dbAppUser} -p'${CREDS.dbAppPass}' ${CREDS.dbName}`)} className="text-gray-400 hover:text-white ml-2 shrink-0"><Copy className="w-3 h-3" /></button>
+                </p>
+              </div>
+            </div>
+            <div className="bg-white rounded border border-purple-200 p-3 space-y-2">
+              <p className="font-bold text-purple-800">Fix "Access Denied" errors:</p>
+              <div className="bg-gray-900 rounded p-2 font-mono text-green-400 text-xs space-y-1">
+                <p className="text-gray-400"># Run as root user in mysql:</p>
+                <p>{`DROP USER IF EXISTS '${CREDS.dbAppUser}'@'localhost';`}</p>
+                <p>{`CREATE USER '${CREDS.dbAppUser}'@'localhost' IDENTIFIED BY '${CREDS.dbAppPass}';`}</p>
+                <p>{`GRANT ALL PRIVILEGES ON \`${CREDS.dbName}\`.* TO '${CREDS.dbAppUser}'@'localhost';`}</p>
+                <p>FLUSH PRIVILEGES;</p>
+              </div>
+              <button
+                onClick={() => copyLine(`DROP USER IF EXISTS '${CREDS.dbAppUser}'@'localhost';\nCREATE USER '${CREDS.dbAppUser}'@'localhost' IDENTIFIED BY '${CREDS.dbAppPass}';\nGRANT ALL PRIVILEGES ON \`${CREDS.dbName}\`.* TO '${CREDS.dbAppUser}'@'localhost';\nFLUSH PRIVILEGES;`)}
+                className="text-xs text-purple-700 hover:text-purple-900 flex items-center gap-1"
+              >
+                <Copy className="w-3 h-3" /> Copy fix commands
+              </button>
+            </div>
+            <div className="bg-white rounded border border-purple-200 p-3 space-y-2">
+              <p className="font-bold text-purple-800">Check tables exist:</p>
+              <div className="bg-gray-900 rounded p-2 font-mono text-green-400 text-xs">
+                <p>SHOW TABLES;</p>
+                <p>SELECT COUNT(*) FROM clients;</p>
+                <p>SELECT COUNT(*) FROM suppliers;</p>
+                <p>SELECT COUNT(*) FROM sms_log;</p>
+              </div>
+            </div>
+            <div className="bg-white rounded border border-purple-200 p-3 space-y-2">
+              <p className="font-bold text-purple-800">Restart API after DB fix:</p>
+              <div className="bg-gray-900 rounded p-2 font-mono text-green-400 text-xs space-y-1">
+                <p>pm2 restart net2app-api</p>
+                <p>pm2 logs net2app-api --lines 20</p>
+                <p>{`curl -s http://127.0.0.1:5000/health`}</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded border border-purple-200 p-3">
+            <p className="text-xs font-bold text-purple-800 mb-2">Test API endpoints manually:</p>
+            <div className="grid md:grid-cols-2 gap-2">
+              {[
+                [`curl -s -H "Authorization: Bearer ${CREDS.apiToken}" http://${CREDS.serverIp}:5000/health`, "Health check"],
+                [`curl -s -H "Authorization: Bearer ${CREDS.apiToken}" http://${CREDS.serverIp}:5000/api/clients`, "List clients"],
+                [`curl -s -H "Authorization: Bearer ${CREDS.apiToken}" http://${CREDS.serverIp}:5000/api/suppliers`, "List suppliers"],
+                [`curl -s -X POST -H "Authorization: Bearer ${CREDS.apiToken}" http://${CREDS.serverIp}:5000/api/kannel/sync`, "Sync Kannel config"],
+              ].map(([cmd, label]) => (
+                <div key={label} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5">
+                  <span className="text-xs text-muted-foreground w-24 shrink-0">{label}</span>
+                  <code className="text-xs font-mono text-gray-700 flex-1 truncate">{cmd}</code>
+                  <button onClick={() => copyLine(cmd)} className="text-muted-foreground hover:text-foreground shrink-0"><Copy className="w-3 h-3" /></button>
+                </div>
+              ))}
             </div>
           </div>
         </CardContent>

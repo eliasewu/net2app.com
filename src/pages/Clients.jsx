@@ -76,23 +76,33 @@ export default function Clients() {
 
   const createMut = useMutation({
     mutationFn: (data) => base44.entities.Client.create(data),
-    onSuccess: async (_, data) => {
+    onSuccess: async (created, data) => {
       qc.invalidateQueries({ queryKey: ['clients'] });
       setDialogOpen(false);
-      toast.success("Client created");
+      setEditingClient(null);
+      toast.success("Client created successfully!");
+      // Mirror to Debian server DB
+      base44.functions.invoke('smppManager', { action: 'sync_client', client: { ...data, id: created?.id || data.id } }).catch(() => {});
       if (data.email) {
-        await base44.integrations.Core.SendEmail({
+        base44.integrations.Core.SendEmail({
           to: data.email,
           subject: "Welcome - SMS Gateway Account Created",
           body: `Dear ${data.contact_person || data.name},\n\nYour account has been created on our SMS Gateway platform.\n\nConnection Type: ${data.connection_type}\nUsername: ${data.smpp_username || 'N/A'}\n\nPlease contact support for your credentials.\n\nBest regards,\nSMS Gateway Admin`
-        });
+        }).catch(() => {});
       }
     },
   });
 
   const updateMut = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Client.update(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setDialogOpen(false); toast.success("Client updated"); },
+    onSuccess: (_, { id, data }) => {
+      qc.invalidateQueries({ queryKey: ['clients'] });
+      setDialogOpen(false);
+      setEditingClient(null);
+      toast.success("Client updated successfully!");
+      // Mirror to Debian server DB
+      base44.functions.invoke('smppManager', { action: 'sync_client', client: { ...data, id } }).catch(() => {});
+    },
   });
 
   const deleteMut = useMutation({
@@ -354,8 +364,9 @@ export default function Clients() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending}>
-              {(createMut.isPending || updateMut.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingClient ? 'Update' : 'Create'}
+              {(createMut.isPending || updateMut.isPending) ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{editingClient ? 'Updating...' : 'Creating...'}</>
+              ) : (editingClient ? 'Update Client' : 'Create Client')}
             </Button>
           </DialogFooter>
         </DialogContent>
