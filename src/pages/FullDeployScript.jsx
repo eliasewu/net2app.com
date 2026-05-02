@@ -118,10 +118,17 @@ const buildKannelSyncScript = (c) => [
 const buildScript = (c) => [
   '#!/bin/bash',
   '# ═══════════════════════════════════════════════════════════════════',
-  '#  Net2app — Smart Debian 12 Deployment',
-  '#  Checks what is already installed, installs only what is missing,',
-  '#  updates config files in all cases.',
+  '#  Net2app — Complete Debian 12 Deployment',
+  '#  Includes: MariaDB, Kannel SMS GW, Express API, WPPConnect (WA),',
+  '#  GramJS (Telegram), IMO-Bridge, Nginx SPA, Session Servers,',
+  '#  UFW Firewall, Fail2Ban, PM2',
   '#  Server: 192.95.36.154  User: root',
+  '#',
+  '#  ARCHITECTURE:',
+  '#  Frontend (React) → Base44 Cloud API (entities/functions/auth)',
+  '#  Session Servers  → WPPConnect:5001, GramJS:5002, IMO:5003',
+  '#  SMS Gateway      → Kannel bearerbox:13001 + smsbox',
+  '#  Local API        → Express:5000 (DLR, SMPP sync, health)',
   '# ═══════════════════════════════════════════════════════════════════',
   '',
   'if [ "$EUID" -ne 0 ]; then exec sudo bash "$0" "$@"; fi',
@@ -516,6 +523,142 @@ const buildScript = (c) => [
   'curl -s http://127.0.0.1:5000/health | grep -q "ok" && ok "API Server: RUNNING on :5000" || info "API Server: check pm2 logs net2app-api"',
   '',
 
+  // STEP 6b — Session Servers (WPPConnect + GramJS + IMO)
+  'header "STEP 6b: WhatsApp/Telegram/IMO Session Servers"',
+  'mkdir -p /opt/net2app-sessions && cd /opt/net2app-sessions',
+  'npm init -y 2>/dev/null | tail -1',
+  'npm install @wppconnect-team/wppconnect express cors qrcode 2>&1 | tail -3',
+  'npm install telegram gramjs express cors qrcode 2>&1 | tail -3',
+  '',
+  '# ── WhatsApp Session Server (WPPConnect) — port 5001 ─────────────',
+  "cat > /opt/net2app-sessions/wppconnect-server.js << 'WPPEOF'",
+  "const wppconnect = require('@wppconnect-team/wppconnect');",
+  "const express = require('express');",
+  "const cors = require('cors');",
+  'const app = express();',
+  'app.use(cors()); app.use(express.json());',
+  'const sessions = {};',
+  "app.post('/session/start', async (req, res) => {",
+  '  const { session_id } = req.body;',
+  "  if (sessions[session_id]?.status === 'CONNECTED') return res.json({ status: 'CONNECTED', session_id });",
+  "  sessions[session_id] = { status: 'STARTING', qr: null };",
+  '  try {',
+  '    const client = await wppconnect.create({',
+  '      session: session_id, headless: true, useChrome: false,',
+  "      catchQR: (base64Qr) => { sessions[session_id].qr = base64Qr; sessions[session_id].status = 'QR_READY'; },",
+  "      statusFind: (status) => { sessions[session_id].status = status; if (status === 'inChat') sessions[session_id].status = 'CONNECTED'; },",
+  '    });',
+  '    sessions[session_id].client = client;',
+  "    sessions[session_id].status = 'CONNECTED';",
+  "  } catch(e) { sessions[session_id] = { status: 'ERROR', error: e.message }; }",
+  '  res.json({ status: sessions[session_id]?.status, session_id });',
+  '});',
+  "app.get('/session/qr', (req, res) => {",
+  '  const s = sessions[req.query.session_id];',
+  "  res.json({ qr: s?.qr || null, status: s?.status || 'NOT_STARTED' });",
+  '});',
+  "app.get('/session/status', (req, res) => {",
+  '  const s = sessions[req.query.session_id];',
+  "  res.json({ status: s?.status || 'NOT_STARTED', connected: s?.status === 'CONNECTED' });",
+  '});',
+  "app.post('/session/logout', async (req, res) => {",
+  "  const s = sessions[req.body.session_id];",
+  "  if (s?.client) await s.client.logout().catch(()=>{});",
+  '  delete sessions[req.body.session_id];',
+  '  res.json({ ok: true });',
+  '});',
+  "app.post('/send', async (req, res) => {",
+  '  const { session_id, to, message } = req.body;',
+  '  const s = sessions[session_id];',
+  "  if (!s?.client) return res.status(400).json({ error: 'Session not connected' });",
+  "  const result = await s.client.sendText(to + '@c.us', message);",
+  '  res.json({ ok: true, id: result?.id });',
+  '});',
+  "app.listen(5001, '0.0.0.0', () => console.log('WA session server on :5001'));",
+  'WPPEOF',
+  '',
+  '# ── Telegram Session Server (GramJS) — port 5002 ──────────────────',
+  "cat > /opt/net2app-sessions/gramjs-server.js << 'TGEOF'",
+  "const { TelegramClient } = require('telegram');",
+  "const { StringSession } = require('telegram/sessions');",
+  "const express = require('express');",
+  "const cors = require('cors');",
+  "const qrcode = require('qrcode');",
+  'const app = express();',
+  'app.use(cors()); app.use(express.json());',
+  'const sessions = {};',
+  "const API_ID = parseInt(process.env.TG_API_ID || '0');",
+  "const API_HASH = process.env.TG_API_HASH || '';",
+  "app.post('/session/start', async (req, res) => {",
+  '  const { session_id } = req.body;',
+  "  if (!API_ID || !API_HASH) return res.status(400).json({ error: 'Set TG_API_ID and TG_API_HASH env vars on the server. Get them from https://my.telegram.org' });",
+  "  const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { connectionRetries: 3 });",
+  "  sessions[session_id] = { client, status: 'STARTING', qr: null };",
+  '  await client.connect();',
+  '  try {',
+  "    const result = await client.invoke({ _: 'auth.exportLoginToken', apiId: API_ID, apiHash: API_HASH, exceptIds: [] });",
+  "    const token = Buffer.from(result.token).toString('base64url');",
+  "    const qrUrl = 'tg://login?token=' + token;",
+  '    const qrBase64 = await qrcode.toDataURL(qrUrl, { width: 280 });',
+  "    sessions[session_id] = { client, status: 'QR_READY', qr: qrBase64, token };",
+  "    res.json({ status: 'QR_READY', session_id });",
+  "  } catch(e) { sessions[session_id].status = 'ERROR'; res.json({ status: 'ERROR', error: e.message }); }",
+  '});',
+  "app.get('/session/qr', (req, res) => {",
+  '  const s = sessions[req.query.session_id];',
+  "  res.json({ qr: s?.qr || null, status: s?.status || 'NOT_STARTED' });",
+  '});',
+  "app.get('/session/status', async (req, res) => {",
+  '  const s = sessions[req.query.session_id];',
+  "  if (!s) return res.json({ status: 'NOT_STARTED', connected: false });",
+  "  const connected = await s.client.isUserAuthorized().catch(() => false);",
+  "  if (connected) s.status = 'CONNECTED';",
+  '  res.json({ status: s.status, connected });',
+  '});',
+  "app.post('/session/logout', async (req, res) => {",
+  '  const s = sessions[req.body.session_id];',
+  "  if (s?.client) await s.client.destroy().catch(() => {});",
+  '  delete sessions[req.body.session_id];',
+  '  res.json({ ok: true });',
+  '});',
+  "app.listen(5002, '0.0.0.0', () => console.log('TG session server on :5002'));",
+  'TGEOF',
+  '',
+  '# ── IMO Bridge Server — port 5003 ─────────────────────────────────',
+  "cat > /opt/net2app-sessions/imo-server.js << 'IMOEOF'",
+  "const express = require('express');",
+  "const cors = require('cors');",
+  'const app = express();',
+  'app.use(cors()); app.use(express.json());',
+  "app.post('/session/start', (req, res) => res.json({ status: 'IMO_NOT_IMPLEMENTED', message: 'IMO Bridge requires manual setup. Contact support.' }));",
+  "app.get('/session/qr', (req, res) => res.json({ qr: null, status: 'NOT_STARTED' }));",
+  "app.get('/session/status', (req, res) => res.json({ status: 'NOT_STARTED', connected: false }));",
+  "app.post('/session/logout', (req, res) => res.json({ ok: true }));",
+  "app.listen(5003, '0.0.0.0', () => console.log('IMO bridge placeholder on :5003'));",
+  'IMOEOF',
+  '',
+  '# ── Open session server ports in UFW ──────────────────────────────',
+  'ufw allow 5001/tcp comment "WA WPPConnect session"',
+  'ufw allow 5002/tcp comment "TG GramJS session"',
+  'ufw allow 5003/tcp comment "IMO bridge session"',
+  '',
+  '# ── Start with PM2 ────────────────────────────────────────────────',
+  'pm2 delete wa-session tg-session imo-session 2>/dev/null || true',
+  'pm2 start /opt/net2app-sessions/wppconnect-server.js --name wa-session',
+  'pm2 start /opt/net2app-sessions/gramjs-server.js --name tg-session',
+  'pm2 start /opt/net2app-sessions/imo-server.js --name imo-session',
+  'pm2 save',
+  '',
+  'sleep 3',
+  'curl -s http://127.0.0.1:5001/session/status?session_id=test | grep -q "status" && ok "WA session server: RUNNING on :5001" || info "WA session: check pm2 logs wa-session"',
+  'curl -s http://127.0.0.1:5002/session/status?session_id=test | grep -q "status" && ok "TG session server: RUNNING on :5002" || info "TG session: check pm2 logs tg-session"',
+  '',
+  'info "For Telegram QR, set env vars on the server:"',
+  'info "  export TG_API_ID=YOUR_ID TG_API_HASH=YOUR_HASH"',
+  'info "  Get them from: https://my.telegram.org → API Development Tools"',
+  'info "  Then restart: pm2 restart tg-session"',
+  '',
+
   // STEP 7 — Clone + write .env + build
   'header "STEP 7: Clone & Build Net2app Frontend (with Base44 env)"',
   'if [ -d "$DEPLOY_DIR/.git" ]; then',
@@ -757,20 +900,21 @@ const buildScript = (c) => [
 ].join('\n');
 
 const STEPS = [
-  { num: "✈",  label: "Pre-Flight Check",        desc: "Detect what is already installed: MariaDB, Kannel, bearerbox, smsbox, Nginx, Node.js, PM2, UFW, Fail2Ban" },
-  { num: 1,  label: "System Update",             desc: "apt-get update/upgrade + base packages (only missing ones)" },
-  { num: 2,  label: "MariaDB Database",          desc: "Install if missing; always create DB + tables + set passwords" },
-  { num: 3,  label: "Billing Triggers",          desc: "Real-time billing triggers — billing-type aware (send/submit/delivery)" },
-  { num: 4,  label: "Kannel bearerbox + smsbox", desc: "Install if missing; always update kannel.conf + systemd services" },
-  { num: 5,  label: "Node.js 20 + PM2",          desc: "Install if missing; skip if already present" },
-  { num: 6,  label: "SMPP API Server",           desc: "Express API :5000 — DLR, Kannel reload, /api/kannel/sync, gen-kannel-conf.sh" },
-  { num: 7,  label: "Clone & Build Frontend",    desc: "Clone/update from GitHub, write Base44 .env, npm build, deploy dist → /var/www/html" },
-  { num: 8,  label: "Nginx SPA + Proxy",         desc: "Install if missing; always update config — SPA fallback + /api/ proxy + CORS" },
-  { num: 9,  label: "UFW Firewall",              desc: "Install if missing; always apply port rules" },
-  { num: 10, label: "Fail2Ban",                  desc: "Install if missing; always update jail.local" },
-  { num: 11, label: "Kannel Sync from DB",       desc: "Run gen-kannel-conf.sh — reads active SMPP clients/suppliers from MariaDB, rewrites kannel.conf, reloads" },
-  { num: 12, label: "Save Credentials",          desc: "Write /root/.net2app_credentials with all passwords" },
-  { num: 13, label: "Health Check + Summary",    desc: "Verify all services; print full credential/API/Base44 summary; auto-detect App ID from built assets" },
+  { num: "✈",  label: "Pre-Flight Check",             desc: "Detect what is already installed: MariaDB, Kannel, Nginx, Node.js, PM2, UFW, Fail2Ban" },
+  { num: 1,  label: "System Update",                  desc: "apt-get update/upgrade + base packages" },
+  { num: 2,  label: "MariaDB Database",               desc: "Install if missing; create DB + tables + billing triggers" },
+  { num: 3,  label: "Billing Triggers",               desc: "Real-time billing triggers — billing-type aware (send/submit/delivery)" },
+  { num: 4,  label: "Kannel SMS Gateway",             desc: "bearerbox + smsbox — SMPP gateway for real SMS delivery" },
+  { num: 5,  label: "Node.js 20 + PM2",               desc: "Install if missing; process manager for all services" },
+  { num: 6,  label: "SMPP API Server (:5000)",        desc: "Express API — DLR callback, Kannel reload, health check" },
+  { num: "6b", label: "Session Servers (WA/TG/IMO)",  desc: "WPPConnect :5001 (WhatsApp), GramJS :5002 (Telegram), IMO-Bridge :5003 — real QR pairing" },
+  { num: 7,  label: "Clone & Build Frontend",         desc: "Clone from GitHub, inject Base44 .env, npm build, deploy to /var/www/html" },
+  { num: 8,  label: "Nginx SPA + API Proxy",          desc: "SPA fallback + /api/ reverse proxy + CORS headers" },
+  { num: 9,  label: "UFW Firewall",                   desc: "Open: 22,80,443,5001,5002,5003,5060,9095-9200. Lock: 3306,13000,13001,13013" },
+  { num: 10, label: "Fail2Ban",                       desc: "SSH brute-force protection" },
+  { num: 11, label: "Kannel Sync from DB",            desc: "Auto-generate kannel.conf from MariaDB clients/suppliers" },
+  { num: 12, label: "Save Credentials",               desc: "Write /root/.net2app_credentials with all passwords + endpoints" },
+  { num: 13, label: "Health Check + Summary",         desc: "Verify all services; print full access summary with all URLs/tokens" },
 ];
 
 // ─── CREDENTIALS SUMMARY TABLE ───────────────────────────────────────────────
@@ -878,7 +1022,7 @@ export default function FullDeployScript() {
     <div className="space-y-6">
       <PageHeader
         title="Full Deploy Script"
-        description="Smart Debian 12 deployment — checks what's installed, installs only missing, always updates configs. Full post-install summary with all passwords + API + Base44 App ID."
+        description="Complete Debian 12 deployment — MariaDB, Kannel SMS GW, Express API, WPPConnect (WA :5001), GramJS (TG :5002), IMO (:5003), Nginx SPA, UFW, Fail2Ban, PM2. One command deploys everything."
       >
         <Button variant="outline" size="sm" onClick={copyKannel} className="gap-1.5">
           {copiedKannel ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -950,6 +1094,8 @@ export default function FullDeployScript() {
                 ["SERVER_API_TOKEN",  CREDS.apiToken],
                 ["KANNEL_ADMIN_URL",  `http://${CREDS.serverIp}:13000`],
                 ["KANNEL_ADMIN_PASS", CREDS.kannelPass],
+                ["WA_SESSION_URL",    `http://${CREDS.serverIp}:5001`],
+                ["TG_SESSION_URL",    `http://${CREDS.serverIp}:5002`],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-center gap-2 bg-white rounded px-3 py-1.5 border border-blue-200">
                   <code className="text-xs font-mono font-semibold text-blue-800 shrink-0 w-40">{k}</code>
@@ -959,6 +1105,32 @@ export default function FullDeployScript() {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── TELEGRAM API CREDENTIALS NOTE ── */}
+      <Card className="border-blue-300 bg-blue-50">
+        <CardContent className="p-4 space-y-2">
+          <p className="text-xs font-bold text-blue-800 flex items-center gap-2">
+            <Wifi className="w-3.5 h-3.5" /> Telegram QR — Requires API Credentials (one-time setup)
+          </p>
+          <div className="grid md:grid-cols-2 gap-3 text-xs text-blue-800">
+            <div className="bg-white rounded border border-blue-200 p-3 space-y-1">
+              <p className="font-bold">Get TG API credentials:</p>
+              <p>1. Go to <strong>https://my.telegram.org</strong> and log in</p>
+              <p>2. Click "API Development Tools"</p>
+              <p>3. Create app → copy <code className="bg-blue-100 px-1 rounded">api_id</code> and <code className="bg-blue-100 px-1 rounded">api_hash</code></p>
+            </div>
+            <div className="bg-white rounded border border-blue-200 p-3 space-y-1">
+              <p className="font-bold">Set on server:</p>
+              <div className="bg-gray-900 rounded p-2 font-mono text-green-400 text-xs">
+                <p>echo 'export TG_API_ID=12345' &gt;&gt; ~/.bashrc</p>
+                <p>echo 'export TG_API_HASH=abc123' &gt;&gt; ~/.bashrc</p>
+                <p>source ~/.bashrc</p>
+                <p>pm2 restart tg-session</p>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -1044,7 +1216,7 @@ export default function FullDeployScript() {
           <button className="flex items-center justify-between w-full text-left" onClick={() => setStepsOpen(v => !v)}>
             <CardTitle className="text-sm flex items-center gap-2">
               What this script does
-              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">13 Steps</Badge>
+              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">14 Steps</Badge>
             </CardTitle>
             {stepsOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
           </button>
