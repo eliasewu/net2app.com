@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi, BookOpen, Smartphone, TabletSmartphone } from "lucide-react";
+import { Plus, Pencil, Trash2, Phone, MessageSquare, Send, Wifi, BookOpen, Smartphone, TabletSmartphone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import HttpApiTemplates from "@/components/suppliers/HttpApiTemplates";
 import DeviceConnectTab from "@/components/suppliers/DeviceConnectTab";
@@ -82,6 +82,8 @@ export default function Suppliers() {
   });
 
   const handleSubmit = () => {
+    if (!form.name?.trim()) { toast.error("Supplier Name is required"); return; }
+    if (!form.connection_type) { toast.error("Connection Type is required"); return; }
     if (editing) updateMut.mutate({ id: editing.id, data: form });
     else createMut.mutate(form);
   };
@@ -358,7 +360,10 @@ export default function Suppliers() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editing ? 'Update' : 'Create'}</Button>
+            <Button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending}>
+              {(createMut.isPending || updateMut.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {editing ? 'Update' : 'Create'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

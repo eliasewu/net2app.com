@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil, Trash2, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, Wifi, WifiOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const emptyClient = {
@@ -101,6 +101,9 @@ export default function Clients() {
   });
 
   const handleSubmit = () => {
+    if (!form.name?.trim()) { toast.error("Company Name is required"); return; }
+    if (!form.email?.trim()) { toast.error("Email is required"); return; }
+    if (!form.connection_type) { toast.error("Connection Type is required"); return; }
     if (editingClient) {
       updateMut.mutate({ id: editingClient.id, data: form });
     } else {
@@ -351,6 +354,7 @@ export default function Clients() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending}>
+              {(createMut.isPending || updateMut.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editingClient ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
