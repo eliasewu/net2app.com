@@ -1148,6 +1148,86 @@ export default function FullDeployScript() {
         </CardContent>
       </Card>
 
+      {/* ── QUICK FIX PANEL ── */}
+      <Card className="border-red-400 bg-red-50">
+        <CardContent className="p-4 space-y-3">
+          <p className="text-sm font-bold text-red-800 flex items-center gap-2">
+            <Server className="w-4 h-4" /> Quick Fix — "Access Denied" from net2app-server (old process)
+          </p>
+          <div className="bg-yellow-50 border border-yellow-300 rounded p-3 text-xs text-yellow-800">
+            <strong>Root cause:</strong> You have TWO server processes running — <code className="font-mono bg-yellow-100 px-1 rounded">net2app-server</code> (id:1, old, 561 restarts, wrong password) and <code className="font-mono bg-yellow-100 px-1 rounded">net2app-api</code> (id:2, new, correct). The old one is causing the errors. Kill it and fix the DB user.
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-red-800">Step 1 — Kill the old broken process:</p>
+              <div className="bg-gray-900 rounded p-3 font-mono text-green-400 text-xs space-y-1">
+                {[
+                  "pm2 delete net2app-server",
+                  "pm2 delete 1",
+                  "pm2 save",
+                  "pm2 list",
+                ].map(cmd => (
+                  <div key={cmd} className="flex items-center justify-between gap-2">
+                    <span>{cmd}</span>
+                    <button onClick={() => copyLine(cmd)} className="text-gray-400 hover:text-white shrink-0"><Copy className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-red-800">Step 2 — Re-provision DB user (copy all at once):</p>
+              <div className="bg-gray-900 rounded p-3 font-mono text-green-400 text-xs space-y-1">
+                {[
+                  `mysql -u root -p'${CREDS.dbRootPass}' -e "DROP USER IF EXISTS '${CREDS.dbAppUser}'@'localhost';"`,
+                  `mysql -u root -p'${CREDS.dbRootPass}' -e "CREATE USER '${CREDS.dbAppUser}'@'localhost' IDENTIFIED BY '${CREDS.dbAppPass}';"`,
+                  `mysql -u root -p'${CREDS.dbRootPass}' -e "GRANT ALL PRIVILEGES ON \\\`${CREDS.dbName}\\\`.* TO '${CREDS.dbAppUser}'@'localhost'; FLUSH PRIVILEGES;"`,
+                ].map(cmd => (
+                  <div key={cmd} className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[10px]">{cmd}</span>
+                    <button onClick={() => copyLine(cmd)} className="text-gray-400 hover:text-white shrink-0"><Copy className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => copyLine(`mysql -u root -p'${CREDS.dbRootPass}' -e "DROP USER IF EXISTS '${CREDS.dbAppUser}'@'localhost'; CREATE USER '${CREDS.dbAppUser}'@'localhost' IDENTIFIED BY '${CREDS.dbAppPass}'; GRANT ALL PRIVILEGES ON \\\`${CREDS.dbName}\\\`.* TO '${CREDS.dbAppUser}'@'localhost'; FLUSH PRIVILEGES;"`)}
+                className="text-xs bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1.5 rounded border border-red-300 flex items-center gap-1.5 font-medium"
+              >
+                <Copy className="w-3 h-3" /> Copy all DB fix as one command
+              </button>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-red-800">Step 3 — Verify fix + restart API:</p>
+              <div className="bg-gray-900 rounded p-3 font-mono text-green-400 text-xs space-y-1">
+                {[
+                  `mysql -u ${CREDS.dbAppUser} -p'${CREDS.dbAppPass}' ${CREDS.dbName} -e "SELECT 'OK';"`  ,
+                  "pm2 restart net2app-api",
+                  "pm2 logs net2app-api --lines 10",
+                ].map(cmd => (
+                  <div key={cmd} className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[10px]">{cmd}</span>
+                    <button onClick={() => copyLine(cmd)} className="text-gray-400 hover:text-white shrink-0"><Copy className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-red-800">Step 4 — Confirm health:</p>
+              <div className="bg-gray-900 rounded p-3 font-mono text-green-400 text-xs space-y-1">
+                {[
+                  `curl -s http://127.0.0.1:5000/health`,
+                  `# Expected: {"ok":true,"db":"connected"}`,
+                ].map(cmd => (
+                  <div key={cmd} className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[10px]">{cmd}</span>
+                    {!cmd.startsWith('#') && <button onClick={() => copyLine(cmd)} className="text-gray-400 hover:text-white shrink-0"><Copy className="w-3 h-3" /></button>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* ── MANUAL DB CONNECT ── */}
       <Card className="border-purple-300 bg-purple-50">
         <CardContent className="p-4 space-y-3">
