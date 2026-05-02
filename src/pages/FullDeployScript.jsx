@@ -5,15 +5,120 @@ import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Check, Upload, Terminal, ChevronUp, ChevronDown, Loader2, CheckCircle2 } from "lucide-react";
+import { Copy, Check, Upload, Terminal, ChevronUp, ChevronDown, Loader2, CheckCircle2, Eye, EyeOff, Database, Key, Server, Wifi } from "lucide-react";
 import { toast } from "sonner";
 
-// Stored as plain array joined at runtime — avoids ALL template literal / eslint issues
-const buildScript = () => [
+// ─── CREDENTIALS (all real, pre-filled) ──────────────────────────────────────
+const CREDS = {
+  serverIp:      "192.95.36.154",
+  rootPass:      "Telco1988",
+  dbName:        "net2app",
+  dbAppUser:     "net2app",
+  dbAppPass:     "Ariya2015@db",
+  dbRootPass:    "Ariya2015@db",
+  kannelPass:    "Ariya2015@k",
+  apiToken:      "Net2app@API2025!",
+  appId:         "YOUR_BASE44_APP_ID",
+  appBaseUrl:    "https://api.base44.com",
+  funcVersion:   "v3",
+};
+
+// ─── GEN-KANNEL-CONF SCRIPT (standalone, reads from MariaDB) ─────────────────
+const buildKannelSyncScript = (c) => [
   '#!/bin/bash',
   '# ═══════════════════════════════════════════════════════════════════',
-  '#  Net2app — Full Debian 12 Deployment (12 Steps)',
-  '#  Usage: bash deploy.sh',
+  '#  gen-kannel-conf.sh — Read clients/suppliers from MariaDB',
+  '#  and write /etc/kannel/kannel.conf then reload Kannel.',
+  '#  Run: bash /opt/net2app-api/gen-kannel-conf.sh',
+  '# ═══════════════════════════════════════════════════════════════════',
+  '',
+  `DB_HOST=localhost`,
+  `DB_USER="${c.dbAppUser}"`,
+  `DB_PASS="${c.dbAppPass}"`,
+  `DB_NAME="${c.dbName}"`,
+  `KANNEL_PASS="${c.kannelPass}"`,
+  'CONF=/etc/kannel/kannel.conf',
+  'BAK=/etc/kannel/kannel.conf.bak.$(date +%s)',
+  '',
+  '[ -f "$CONF" ] && cp "$CONF" "$BAK"',
+  '',
+  '# ── Write core + smsbox blocks ──────────────────────────────────────',
+  'cat > "$CONF" << COREEOF',
+  'group = core',
+  'admin-port = 13000',
+  `admin-password = ${c.kannelPass}`,
+  `status-password = ${c.kannelPass}`,
+  'smsbox-port = 13001',
+  'log-file = "/var/log/kannel/bearerbox.log"',
+  'log-level = 1',
+  'box-allow-ip = 127.0.0.1',
+  'access-log = "/var/log/kannel/access.log"',
+  'unified-prefix = "+,00,011"',
+  '',
+  'group = smsbox',
+  'smsbox-id = "net2app_smsbox"',
+  'bearerbox-host = 127.0.0.1',
+  'bearerbox-port = 13001',
+  'sendsms-port = 13013',
+  'sendsms-interface = 127.0.0.1',
+  'log-file = "/var/log/kannel/smsbox.log"',
+  'log-level = 1',
+  'global-sender = "NET2APP"',
+  'max-msgs-per-second = 500',
+  'dlr-url = "http://127.0.0.1:5000/api/dlr?msgid=%i&status=%d&to=%p&from=%A"',
+  'COREEOF',
+  '',
+  '# ── Append SMPP supplier (smsc) blocks from DB ──────────────────────',
+  'echo "# === SMSC Suppliers (auto-generated $(date)) ===" >> "$CONF"',
+  '',
+  `mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e \\`,
+  `  "SELECT id,name,smpp_ip,smpp_port,smpp_username,smpp_password,tps_limit FROM suppliers WHERE connection_type='SMPP' AND status='active'" | \\`,
+  'while IFS=$\'\\t\' read -r id name ip port user pass tps; do',
+  '  tps=${tps:-100}',
+  '  cat >> "$CONF" << EOF',
+  '',
+  'group = smsc',
+  'smsc = smpp',
+  `smsc-id = "$name"`,
+  `host = $ip`,
+  `port = $port`,
+  `smsc-username = "$user"`,
+  `smsc-password = "$pass"`,
+  'transceiver-mode = true',
+  'reconnect-delay = 10',
+  `max-pending-submits = $tps`,
+  'EOF',
+  'done',
+  '',
+  '# ── Append SMPP client (smpp-server) blocks from DB ─────────────────',
+  'echo "# === SMPP Clients (auto-generated $(date)) ===" >> "$CONF"',
+  '',
+  `mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e \\`,
+  `  "SELECT id,smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type='SMPP' AND status='active' AND smpp_username IS NOT NULL AND smpp_username<>''" | \\`,
+  'while IFS=$\'\\t\' read -r id user pass port tps; do',
+  '  port=${port:-9096}',
+  '  tps=${tps:-100}',
+  '  cat >> "$CONF" << EOF',
+  '',
+  'group = smpp-server',
+  `system-id = "$user"`,
+  `password = "$pass"`,
+  `port = $port`,
+  `max-sms-per-second = $tps`,
+  'EOF',
+  'done',
+  '',
+  '# ── Reload Kannel ───────────────────────────────────────────────────',
+  'kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null || true',
+  'echo "[OK] kannel.conf updated and Kannel reloaded → $CONF"',
+  'echo "[OK] Backup saved → $BAK"',
+].join('\n');
+
+// ─── MAIN DEPLOY SCRIPT ───────────────────────────────────────────────────────
+const buildScript = (c) => [
+  '#!/bin/bash',
+  '# ═══════════════════════════════════════════════════════════════════',
+  '#  Net2app — Full Debian 12 Deployment (13 Steps)',
   '#  Server: 192.95.36.154  User: root',
   '# ═══════════════════════════════════════════════════════════════════',
   '',
@@ -26,28 +131,30 @@ const buildScript = () => [
   'info()   { echo -e "\\${YELLOW}[i]\\${NC} $1"; }',
   'header() { echo -e "\\n\\${BLUE}══ $1 ══\\${NC}\\n"; }',
   '',
-  '# ── CONFIG — change before running ─────────────────────────────────',
-  'DB_ROOT_PASS="Telco1988"',
-  'DB_APP_USER="net2app"',
-  'DB_APP_PASS="Telco1988"',
-  'DB_NAME="net2app"',
-  'KANNEL_ADMIN_PASS="CHANGE_ADMIN_PASSWORD"',
-  'AMI_PASS="Telco1988"',
-  'API_TOKEN="CHANGE_THIS_SECRET_TOKEN"',
+  '# ── CONFIG ───────────────────────────────────────────────────────────',
+  `DB_ROOT_PASS="${c.dbRootPass}"`,
+  `DB_APP_USER="${c.dbAppUser}"`,
+  `DB_APP_PASS="${c.dbAppPass}"`,
+  `DB_NAME="${c.dbName}"`,
+  `KANNEL_ADMIN_PASS="${c.kannelPass}"`,
+  `API_TOKEN="${c.apiToken}"`,
   'GITHUB_REPO="https://github.com/eliasewu/net2app.com.git"',
   'DEPLOY_DIR="/opt/net2app"',
   'WEBROOT="/var/www/html"',
   'API_DIR="/opt/net2app-api"',
   'BRANCH="main"',
-  '# ────────────────────────────────────────────────────────────────────',
+  `VITE_APP_ID="${c.appId}"`,
+  `VITE_APP_BASE_URL="${c.appBaseUrl}"`,
+  `VITE_FUNCTIONS_VERSION="${c.funcVersion}"`,
+  '# ─────────────────────────────────────────────────────────────────────',
   '',
   'echo ""',
   'echo "════════════════════════════════════════════════════════════"',
-  'echo "  NET2APP — Full Debian 12 Deployment"',
-  'echo "  $(date)"',
+  'echo "  NET2APP DEPLOYMENT  $(date)"',
   'echo "════════════════════════════════════════════════════════════"',
   '',
-  '# ══ STEP 1: System Update ════════════════════════════════════════════',
+
+  // STEP 1
   'header "STEP 1: System Update & Base Packages"',
   'export DEBIAN_FRONTEND=noninteractive',
   'apt-get update -y && apt-get upgrade -y',
@@ -60,21 +167,22 @@ const buildScript = () => [
   '  php8.2 php8.2-mysql php8.2-curl nginx',
   'ok "Base packages installed"',
   '',
-  '# ══ STEP 2: MariaDB ══════════════════════════════════════════════════',
+
+  // STEP 2
   'header "STEP 2: MariaDB Database Server"',
   'apt-get install -y mariadb-server mariadb-client',
   'systemctl enable mariadb && systemctl start mariadb',
   'sleep 2',
   '',
   'mysql -u root << EOF',
-  'ALTER USER "root"@"localhost" IDENTIFIED BY "${DB_ROOT_PASS}";',
-  'CREATE DATABASE IF NOT EXISTS \\`${DB_NAME}\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;',
-  'CREATE USER IF NOT EXISTS "${DB_APP_USER}"@"localhost" IDENTIFIED BY "${DB_APP_PASS}";',
-  'GRANT ALL PRIVILEGES ON \\`${DB_NAME}\\`.* TO "${DB_APP_USER}"@"localhost";',
+  `ALTER USER "root"@"localhost" IDENTIFIED BY "${c.dbRootPass}";`,
+  `CREATE DATABASE IF NOT EXISTS \`${c.dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`,
+  `CREATE USER IF NOT EXISTS "${c.dbAppUser}"@"localhost" IDENTIFIED BY "${c.dbAppPass}";`,
+  `GRANT ALL PRIVILEGES ON \`${c.dbName}\`.* TO "${c.dbAppUser}"@"localhost";`,
   'FLUSH PRIVILEGES;',
   'EOF',
   '',
-  'mysql -u root -p"${DB_ROOT_PASS}" ${DB_NAME} << \'SQLEOF\'',
+  `mysql -u root -p"${c.dbRootPass}" ${c.dbName} << 'SQLEOF'`,
   'CREATE TABLE IF NOT EXISTS clients (',
   '  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL DEFAULT "default",',
   '  name VARCHAR(128), email VARCHAR(128),',
@@ -147,9 +255,10 @@ const buildScript = () => [
   'SQLEOF',
   'ok "MariaDB: net2app database + all tables created"',
   '',
-  '# ══ STEP 3: Billing Triggers ═════════════════════════════════════════',
+
+  // STEP 3
   'header "STEP 3: Billing Triggers (Real-Time)"',
-  'mysql -u root -p"${DB_ROOT_PASS}" ${DB_NAME} << \'TRIGEOF\'',
+  `mysql -u root -p"${c.dbRootPass}" ${c.dbName} << 'TRIGEOF'`,
   'DROP TRIGGER IF EXISTS trg_sms_billing_insert;',
   'DROP TRIGGER IF EXISTS trg_sms_billing_update;',
   'CREATE TRIGGER trg_sms_billing_update',
@@ -182,17 +291,19 @@ const buildScript = () => [
   'TRIGEOF',
   'ok "Billing triggers created"',
   '',
-  '# ══ STEP 4: Kannel SMS Gateway ═══════════════════════════════════════',
+
+  // STEP 4
   'header "STEP 4: Kannel SMS Gateway"',
   'apt-get install -y kannel',
   'mkdir -p /etc/kannel /var/log/kannel',
   'chmod 755 /var/log/kannel',
   '',
+  '# Initial minimal kannel.conf (will be overwritten by gen-kannel-conf.sh after clients/suppliers are added)',
   'cat > /etc/kannel/kannel.conf << KANNELEOF',
   'group = core',
   'admin-port = 13000',
-  'admin-password = ${KANNEL_ADMIN_PASS}',
-  'status-password = ${KANNEL_ADMIN_PASS}',
+  `admin-password = ${c.kannelPass}`,
+  `status-password = ${c.kannelPass}`,
   'smsbox-port = 13001',
   'log-file = "/var/log/kannel/bearerbox.log"',
   'log-level = 1',
@@ -213,7 +324,7 @@ const buildScript = () => [
   'dlr-url = "http://127.0.0.1:5000/api/dlr?msgid=%i&status=%d&to=%p&from=%A"',
   'KANNELEOF',
   '',
-  'cat > /etc/systemd/system/kannel-bearerbox.service << \'EOF\'',
+  "cat > /etc/systemd/system/kannel-bearerbox.service << 'EOF'",
   '[Unit]',
   'Description=Kannel Bearerbox',
   'After=network.target',
@@ -227,7 +338,7 @@ const buildScript = () => [
   'WantedBy=multi-user.target',
   'EOF',
   '',
-  'cat > /etc/systemd/system/kannel-smsbox.service << \'EOF\'',
+  "cat > /etc/systemd/system/kannel-smsbox.service << 'EOF'",
   '[Unit]',
   'Description=Kannel Smsbox',
   'After=network.target kannel-bearerbox.service',
@@ -253,7 +364,8 @@ const buildScript = () => [
   'systemctl is-active kannel-bearerbox && ok "Kannel bearerbox: RUNNING" || info "Kannel bearerbox: check logs"',
   'systemctl is-active kannel-smsbox    && ok "Kannel smsbox:    RUNNING" || info "Kannel smsbox: check logs"',
   '',
-  '# ══ STEP 5: Node.js 20 + PM2 ════════════════════════════════════════',
+
+  // STEP 5
   'header "STEP 5: Node.js 20 + PM2"',
   'which node &>/dev/null || {',
   '  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -',
@@ -262,7 +374,8 @@ const buildScript = () => [
   'which pm2 &>/dev/null || npm install -g pm2',
   'ok "Node.js $(node -v) + PM2 ready"',
   '',
-  '# ══ STEP 6: SMPP API Server ══════════════════════════════════════════',
+
+  // STEP 6 — API server with correct passwords + /api/kannel/sync endpoint
   'header "STEP 6: Net2app SMPP API Server"',
   'mkdir -p $API_DIR && cd $API_DIR',
   'npm init -y 2>/dev/null | tail -1',
@@ -272,14 +385,66 @@ const buildScript = () => [
   'PORT=5000',
   'MYSQL_HOST=localhost',
   'MYSQL_PORT=3306',
-  'MYSQL_DB=${DB_NAME}',
-  'MYSQL_USER=${DB_APP_USER}',
-  'MYSQL_PASS=${DB_APP_PASS}',
+  `MYSQL_DB=${c.dbName}`,
+  `MYSQL_USER=${c.dbAppUser}`,
+  `MYSQL_PASS=${c.dbAppPass}`,
   'KANNEL_ADMIN_URL=http://127.0.0.1:13000',
-  'KANNEL_ADMIN_PASS=${KANNEL_ADMIN_PASS}',
-  'API_TOKEN=${API_TOKEN}',
+  `KANNEL_ADMIN_PASS=${c.kannelPass}`,
+  `API_TOKEN=${c.apiToken}`,
   'ENVEOF',
   'chmod 600 $API_DIR/.env',
+  '',
+  // Write gen-kannel-conf.sh
+  'cat > $API_DIR/gen-kannel-conf.sh << \'GENKEOF\'',
+  '#!/bin/bash',
+  '# Auto-generate /etc/kannel/kannel.conf from MariaDB clients + suppliers',
+  'source /opt/net2app-api/.env 2>/dev/null || true',
+  `DB_USER="${c.dbAppUser}"`,
+  `DB_PASS="${c.dbAppPass}"`,
+  `DB_NAME="${c.dbName}"`,
+  `KANNEL_PASS="${c.kannelPass}"`,
+  'CONF=/etc/kannel/kannel.conf',
+  'BAK=/etc/kannel/kannel.conf.bak.$(date +%s)',
+  '[ -f "$CONF" ] && cp "$CONF" "$BAK"',
+  'cat > "$CONF" << COREEOF',
+  'group = core',
+  'admin-port = 13000',
+  `admin-password = ${c.kannelPass}`,
+  `status-password = ${c.kannelPass}`,
+  'smsbox-port = 13001',
+  'log-file = "/var/log/kannel/bearerbox.log"',
+  'log-level = 1',
+  'box-allow-ip = 127.0.0.1',
+  'access-log = "/var/log/kannel/access.log"',
+  'unified-prefix = "+,00,011"',
+  '',
+  'group = smsbox',
+  'smsbox-id = "net2app_smsbox"',
+  'bearerbox-host = 127.0.0.1',
+  'bearerbox-port = 13001',
+  'sendsms-port = 13013',
+  'sendsms-interface = 127.0.0.1',
+  'log-file = "/var/log/kannel/smsbox.log"',
+  'log-level = 1',
+  'global-sender = "NET2APP"',
+  'max-msgs-per-second = 500',
+  'dlr-url = "http://127.0.0.1:5000/api/dlr?msgid=%i&status=%d&to=%p&from=%A"',
+  'COREEOF',
+  'echo "# === SMSC Suppliers auto-gen $(date) ===" >> "$CONF"',
+  'mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e "SELECT id,name,smpp_ip,smpp_port,smpp_username,smpp_password,tps_limit FROM suppliers WHERE connection_type=\'SMPP\' AND status=\'active\'" 2>/dev/null | while IFS=$\'\\t\' read -r id name ip port user pass tps; do',
+  '  tps=${tps:-100}',
+  '  printf "\\ngroup = smsc\\nsmsc = smpp\\nsmsc-id = \\"%s\\"\\nhost = %s\\nport = %s\\nsmsc-username = \\"%s\\"\\nsmsc-password = \\"%s\\"\\ntransceiver-mode = true\\nreconnect-delay = 10\\nmax-pending-submits = %s\\n" "$name" "$ip" "$port" "$user" "$pass" "$tps" >> "$CONF"',
+  'done',
+  'echo "# === SMPP Clients auto-gen $(date) ===" >> "$CONF"',
+  'mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -B -e "SELECT smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type=\'SMPP\' AND status=\'active\' AND smpp_username IS NOT NULL AND smpp_username<>\'\'" 2>/dev/null | while IFS=$\'\\t\' read -r user pass port tps; do',
+  '  port=${port:-9096}; tps=${tps:-100}',
+  '  printf "\\ngroup = smpp-server\\nsystem-id = \\"%s\\"\\npassword = \\"%s\\"\\nport = %s\\nmax-sms-per-second = %s\\n" "$user" "$pass" "$port" "$tps" >> "$CONF"',
+  'done',
+  'kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null || true',
+  'echo "[OK] kannel.conf regenerated from DB and Kannel reloaded"',
+  'GENKEOF',
+  'chmod +x $API_DIR/gen-kannel-conf.sh',
+  'ok "gen-kannel-conf.sh written to $API_DIR"',
   '',
   "cat > $API_DIR/server.js << 'SERVEREOF'",
   "require('dotenv').config();",
@@ -291,7 +456,7 @@ const buildScript = () => [
   "const fs       = require('fs');",
   'const app = express();',
   'app.use(cors()); app.use(express.json()); app.use(express.urlencoded({ extended: true }));',
-  'const pool = mysql.createPool({ host: process.env.MYSQL_HOST||"localhost", port: parseInt(process.env.MYSQL_PORT)||3306, database: process.env.MYSQL_DB||"net2app", user: process.env.MYSQL_USER||"net2app", password: process.env.MYSQL_PASS||"Telco1988", connectionLimit: 20 });',
+  `const pool = mysql.createPool({ host: process.env.MYSQL_HOST||"localhost", port: parseInt(process.env.MYSQL_PORT)||3306, database: process.env.MYSQL_DB||"${c.dbName}", user: process.env.MYSQL_USER||"${c.dbAppUser}", password: process.env.MYSQL_PASS||"${c.dbAppPass}", connectionLimit: 20 });`,
   'const auth = (req,res,next) => { const t=(req.headers["authorization"]||"").replace("Bearer ",""); const local=["127.0.0.1","::1","::ffff:127.0.0.1"].includes(req.ip); if(t===process.env.API_TOKEN)return next(); if(req.path.startsWith("/api/dlr")&&local)return next(); if(req.path==="/health")return next(); res.status(401).json({error:"Unauthorized"}); };',
   'app.use(auth);',
   'app.get("/health",(req,res)=>res.json({ok:true,ts:new Date().toISOString()}));',
@@ -299,6 +464,7 @@ const buildScript = () => [
   'app.post("/api/dlr",async(req,res)=>{ const{msgid,status}=req.body; const map={DELIVRD:"delivered",UNDELIV:"failed",REJECTD:"rejected",EXPIRED:"failed",DELETED:"failed"}; const st=map[(status||"").toUpperCase()]||(parseInt(status)===1?"delivered":"failed"); try{ await pool.execute("UPDATE sms_log SET status=?,delivery_time=NOW() WHERE message_id=? OR dest_msg_id=?",[st,msgid,msgid]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });',
   'app.post("/api/smpp/test",(req,res)=>{ const{host,port}=req.body; if(!host||!port)return res.status(400).json({error:"host and port required"}); const sock=new net.Socket(); const tid=setTimeout(()=>{sock.destroy();res.json({connected:false,reason:"Timeout (5s)"});},5000); sock.connect(parseInt(port),host,()=>{clearTimeout(tid);sock.destroy();res.json({connected:true,reason:"TCP OK"});}); sock.on("error",err=>{clearTimeout(tid);res.json({connected:false,reason:err.message});}); });',
   'app.post("/api/smpp/reload",(req,res)=>{ exec("kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null",(err)=>{ res.json({ok:!err,message:err?err.message:"Kannel reloaded"}); }); });',
+  'app.post("/api/kannel/sync",(req,res)=>{ exec("/opt/net2app-api/gen-kannel-conf.sh",(err,stdout,stderr)=>{ res.json({ok:!err,output:(stdout||"")+(stderr||""),error:err?err.message:null}); }); });',
   'app.post("/api/smpp/apply-config",(req,res)=>{ const{config}=req.body; if(!config)return res.status(400).json({error:"config required"}); const bak="/etc/kannel/kannel.conf.bak."+Date.now(); try{ if(fs.existsSync("/etc/kannel/kannel.conf"))fs.copyFileSync("/etc/kannel/kannel.conf",bak); fs.writeFileSync("/etc/kannel/kannel.conf",config,"utf8"); exec("kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null",(err)=>{ res.json({ok:true,backup:bak,reloaded:!err}); }); }catch(e){res.status(500).json({error:e.message});} });',
   'app.post("/api/smpp/user/add",async(req,res)=>{ const{client_id,smpp_username,smpp_password,smpp_port}=req.body; try{ await pool.execute("INSERT INTO smpp_users (client_id,smpp_username,smpp_password,smpp_port,status) VALUES (?,?,?,?,\'active\') ON DUPLICATE KEY UPDATE smpp_password=?,smpp_port=?,status=\'active\',updated_at=NOW()",[client_id,smpp_username,smpp_password,smpp_port||9096,smpp_password,smpp_port||9096]); res.json({ok:true,message:"SMPP user provisioned: "+smpp_username}); }catch(e){res.status(500).json({error:e.message});} });',
   'app.post("/api/smpp/user/remove",async(req,res)=>{ const{client_id,smpp_username}=req.body; try{ await pool.execute("UPDATE smpp_users SET status=\'inactive\' WHERE client_id=? AND smpp_username=?",[client_id,smpp_username]); res.json({ok:true}); }catch(e){res.status(500).json({error:e.message});} });',
@@ -313,8 +479,9 @@ const buildScript = () => [
   'sleep 3',
   'curl -s http://127.0.0.1:5000/health | grep -q "ok" && ok "API Server: RUNNING on :5000" || info "API Server: check pm2 logs net2app-api"',
   '',
-  '# ══ STEP 7: Clone & Build Frontend ═══════════════════════════════════',
-  'header "STEP 7: Clone & Build Net2app Frontend"',
+
+  // STEP 7 — Clone + write .env + build
+  'header "STEP 7: Clone & Build Net2app Frontend (with Base44 env)"',
   'if [ -d "$DEPLOY_DIR/.git" ]; then',
   '  cd $DEPLOY_DIR && git fetch origin && git reset --hard origin/$BRANCH',
   '  ok "Repository updated"',
@@ -323,34 +490,74 @@ const buildScript = () => [
   '  ok "Repository cloned"',
   'fi',
   'cd $DEPLOY_DIR',
+  '',
+  '# Inject Base44 env vars so Vite embeds them at build time',
+  'cat > $DEPLOY_DIR/.env << VITEEOF',
+  'VITE_BASE44_APP_ID=${VITE_APP_ID}',
+  'VITE_BASE44_APP_BASE_URL=${VITE_APP_BASE_URL}',
+  'VITE_BASE44_FUNCTIONS_VERSION=${VITE_FUNCTIONS_VERSION}',
+  'VITEEOF',
+  'ok "Base44 .env written → $DEPLOY_DIR/.env"',
+  '',
   'npm install --production=false',
   'npm run build',
-  'mkdir -p $WEBROOT && cp -r dist/* $WEBROOT/',
+  '# Deploy built assets — Nginx will serve from WEBROOT',
+  'mkdir -p $WEBROOT',
+  'rm -rf $WEBROOT/*',
+  'cp -r $DEPLOY_DIR/dist/* $WEBROOT/',
   'ok "Frontend built and deployed to $WEBROOT"',
   '',
-  '# ══ STEP 8: Nginx ════════════════════════════════════════════════════',
-  'header "STEP 8: Nginx Web Server"',
+
+  // STEP 8 — Nginx fixed to serve SPA correctly
+  'header "STEP 8: Nginx — SPA + API proxy"',
   "cat > /etc/nginx/sites-available/net2app << 'NGINXEOF'",
   'server {',
-  '    listen 80; server_name _;',
-  '    root /var/www/html; index index.html;',
-  '    location / { try_files $uri $uri/ /index.html; }',
+  '    listen 80 default_server;',
+  '    listen [::]:80 default_server;',
+  '    server_name _;',
+  '',
+  '    # Serve React SPA from dist output',
+  '    root /var/www/html;',
+  '    index index.html;',
+  '',
+  '    # API reverse proxy — must come BEFORE the SPA catch-all',
   '    location /api/ {',
   '        proxy_pass http://127.0.0.1:5000;',
   '        proxy_http_version 1.1;',
   '        proxy_set_header Host $host;',
   '        proxy_set_header X-Real-IP $remote_addr;',
-  '        proxy_connect_timeout 30s; proxy_read_timeout 60s;',
+  '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;',
+  '        proxy_connect_timeout 30s;',
+  '        proxy_read_timeout 60s;',
+  '        add_header Access-Control-Allow-Origin * always;',
+  '        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;',
+  '        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;',
+  '        if ($request_method = OPTIONS) { return 204; }',
   '    }',
-  '    gzip on; gzip_types text/plain application/javascript application/json text/css;',
+  '',
+  '    # SPA fallback — send all non-file requests to index.html',
+  '    location / {',
+  '        try_files $uri $uri/ /index.html;',
+  '    }',
+  '',
+  '    # Cache static assets',
+  '    location ~* \\.(js|css|png|jpg|ico|woff2?)$ {',
+  '        expires 7d;',
+  '        add_header Cache-Control "public, immutable";',
+  '    }',
+  '',
+  '    gzip on;',
+  '    gzip_types text/plain application/javascript application/json text/css application/xml;',
+  '    gzip_min_length 1024;',
   '}',
   'NGINXEOF',
   'ln -sf /etc/nginx/sites-available/net2app /etc/nginx/sites-enabled/',
   'rm -f /etc/nginx/sites-enabled/default',
   'nginx -t && systemctl enable nginx && systemctl reload nginx',
-  'ok "Nginx configured and running"',
+  'ok "Nginx configured — SPA + /api/ proxy"',
   '',
-  '# ══ STEP 9: UFW Firewall ═════════════════════════════════════════════',
+
+  // STEP 9
   'header "STEP 9: UFW Firewall"',
   'ufw allow 22/tcp       comment "SSH"',
   'ufw allow 80/tcp       comment "HTTP"',
@@ -367,7 +574,8 @@ const buildScript = () => [
   'echo "y" | ufw enable 2>/dev/null || true',
   'ok "UFW Firewall configured"',
   '',
-  '# ══ STEP 10: Fail2Ban ════════════════════════════════════════════════',
+
+  // STEP 10
   'header "STEP 10: Fail2Ban"',
   "cat > /etc/fail2ban/jail.local << 'EOF'",
   '[DEFAULT]',
@@ -383,25 +591,54 @@ const buildScript = () => [
   'systemctl enable fail2ban && systemctl restart fail2ban',
   'ok "Fail2Ban configured"',
   '',
-  '# ══ STEP 11: Save Credentials ════════════════════════════════════════',
-  'header "STEP 11: Save Credentials & Verify"',
+
+  // STEP 11 — Run initial kannel sync
+  'header "STEP 11: Initial Kannel Config Sync from DB"',
+  'bash $API_DIR/gen-kannel-conf.sh && ok "kannel.conf synced from DB" || info "Sync skipped (no SMPP clients/suppliers in DB yet — run after adding them)"',
+  '',
+
+  // STEP 12 — Save credentials
+  'header "STEP 12: Save Credentials"',
   'cat > /root/.net2app_credentials << CREDEOF',
-  '# Net2app Deployment Credentials',
-  'DB_HOST=localhost',
-  'DB_NAME=${DB_NAME}',
-  'DB_USER=${DB_APP_USER}',
-  'DB_PASS=${DB_APP_PASS}',
-  'KANNEL_ADMIN=http://127.0.0.1:13000',
-  'KANNEL_ADMIN_PASS=${KANNEL_ADMIN_PASS}',
-  'API_URL=http://127.0.0.1:5000',
-  'API_TOKEN=${API_TOKEN}',
-  'DEPLOY_DIR=${DEPLOY_DIR}',
-  'WEBROOT=${WEBROOT}',
+  '# ═══════════════════════════════════════════════════════════════',
+  '#  Net2app Server Credentials',
+  '# ═══════════════════════════════════════════════════════════════',
+  '#  SSH',
+  `#  Host:     192.95.36.154`,
+  `#  User:     root`,
+  `#  Password: ${c.rootPass}`,
+  '#',
+  '#  MariaDB',
+  `#  Root password:  ${c.dbRootPass}`,
+  `#  App DB user:    ${c.dbAppUser}`,
+  `#  App DB pass:    ${c.dbAppPass}`,
+  `#  Database name:  ${c.dbName}`,
+  '#',
+  '#  Kannel',
+  `#  Admin/Status password: ${c.kannelPass}`,
+  '#  Admin URL:  http://127.0.0.1:13000',
+  '#',
+  '#  Net2app API',
+  `#  URL:   http://127.0.0.1:5000`,
+  `#  Token: ${c.apiToken}`,
+  '#',
+  '#  Kannel Config Sync',
+  '#  Run: bash /opt/net2app-api/gen-kannel-conf.sh',
+  '# ═══════════════════════════════════════════════════════════════',
+  `DB_HOST=localhost`,
+  `DB_NAME=${c.dbName}`,
+  `DB_USER=${c.dbAppUser}`,
+  `DB_PASS=${c.dbAppPass}`,
+  `KANNEL_ADMIN=http://127.0.0.1:13000`,
+  `KANNEL_ADMIN_PASS=${c.kannelPass}`,
+  `API_URL=http://127.0.0.1:5000`,
+  `API_TOKEN=${c.apiToken}`,
   'CREDEOF',
   'chmod 600 /root/.net2app_credentials',
   '',
-  '# ══ STEP 12: Health Check ════════════════════════════════════════════',
-  'header "STEP 12: Health Check"',
+
+  // STEP 13
+  'header "STEP 13: Health Check"',
   'systemctl is-active nginx            && ok "Nginx:       RUNNING" || echo "  [!] Nginx: STOPPED"',
   'systemctl is-active mariadb          && ok "MariaDB:     RUNNING" || echo "  [!] MariaDB: STOPPED"',
   'systemctl is-active kannel-bearerbox && ok "Bearerbox:   RUNNING" || echo "  [!] Bearerbox: STOPPED"',
@@ -414,55 +651,98 @@ const buildScript = () => [
   'echo "════════════════════════════════════════════════════════════"',
   'echo "  NET2APP DEPLOYMENT COMPLETE"',
   'echo "════════════════════════════════════════════════════════════"',
-  'echo "  App:  http://$(hostname -I | awk \'{print $1}\')"',
-  'echo "  API:  http://$(hostname -I | awk \'{print $1}\'):5000"',
-  'echo "  Creds: cat /root/.net2app_credentials"',
+  'echo "  App URL:  http://$(hostname -I | awk \'{print $1}\')"',
+  'echo "  API URL:  http://$(hostname -I | awk \'{print $1}\'):5000"',
+  'echo "  Creds:    cat /root/.net2app_credentials"',
   'echo ""',
-  'echo "  SET THESE IN BASE44 DASHBOARD → Settings → Secrets:"',
-  'echo "  SERVER_API_URL   = http://$(hostname -I | awk \'{print $1}\'):5000"',
-  'echo "  SERVER_API_TOKEN = ${API_TOKEN}"',
-  'echo "  KANNEL_ADMIN_URL = http://$(hostname -I | awk \'{print $1}\'):13000"',
-  'echo "  KANNEL_ADMIN_PASS= ${KANNEL_ADMIN_PASS}"',
+  'echo "  ► SET IN BASE44 Dashboard → Settings → Secrets:"',
+  `echo "  SERVER_API_URL   = http://$(hostname -I | awk \'{print $1}\'):5000"`,
+  `echo "  SERVER_API_TOKEN = ${c.apiToken}"`,
+  `echo "  KANNEL_ADMIN_URL = http://$(hostname -I | awk \'{print $1}\'):13000"`,
+  `echo "  KANNEL_ADMIN_PASS= ${c.kannelPass}"`,
+  'echo ""',
+  'echo "  ► To sync Kannel config from DB any time:"',
+  'echo "    bash /opt/net2app-api/gen-kannel-conf.sh"',
   'echo "════════════════════════════════════════════════════════════"',
 ].join('\n');
 
 const STEPS = [
-  { num: 1,  label: "System Update",         desc: "apt-get update/upgrade + base packages" },
-  { num: 2,  label: "MariaDB Database",       desc: "Install MariaDB, create net2app DB + all tables: clients, suppliers, routes, sms_log, billing_summary, smpp_users" },
-  { num: 3,  label: "Billing Triggers",       desc: "Real-time MySQL triggers — billing-type aware (send/submit/delivery)" },
-  { num: 4,  label: "Kannel SMS Gateway",     desc: "Install + configure Kannel bearerbox + smsbox with systemd services" },
-  { num: 5,  label: "Node.js 20 + PM2",       desc: "Install Node.js 20 via NodeSource + PM2 process manager" },
-  { num: 6,  label: "SMPP API Server",        desc: "Express API on :5000 — DLR callbacks, TCP test, Kannel reload, apply-config, billing dashboard" },
-  { num: 7,  label: "Clone & Build Frontend", desc: "Clone from GitHub, npm build, deploy to /var/www/html" },
-  { num: 8,  label: "Nginx Web Server",       desc: "Configure SPA + API reverse proxy, reload nginx" },
-  { num: 9,  label: "UFW Firewall",           desc: "Open SSH/HTTP/SIP/RTP/SMPP/tenant ports, block MariaDB external" },
-  { num: 10, label: "Fail2Ban",               desc: "Brute-force protection: SSH (3 retries, 24h ban)" },
-  { num: 11, label: "Save Credentials",       desc: "Write /root/.net2app_credentials" },
-  { num: 12, label: "Health Check",           desc: "Verify all services running, print next steps + secrets to set" },
+  { num: 1,  label: "System Update",          desc: "apt-get update/upgrade + all base packages" },
+  { num: 2,  label: "MariaDB Database",        desc: "Install MariaDB, set passwords, create net2app DB + tables" },
+  { num: 3,  label: "Billing Triggers",        desc: "Real-time billing triggers — billing-type aware (send/submit/delivery)" },
+  { num: 4,  label: "Kannel SMS Gateway",      desc: "Install + minimal config + systemd services for bearerbox & smsbox" },
+  { num: 5,  label: "Node.js 20 + PM2",        desc: "Node.js 20 via NodeSource + PM2 process manager" },
+  { num: 6,  label: "SMPP API Server",         desc: "Express API :5000 — DLR, Kannel reload, /api/kannel/sync, billing" },
+  { num: 7,  label: "Clone & Build Frontend",  desc: "Clone from GitHub, write Base44 .env, npm build, copy dist → /var/www/html" },
+  { num: 8,  label: "Nginx SPA + Proxy",       desc: "SPA fallback (index.html), /api/ reverse proxy to :5000, CORS headers" },
+  { num: 9,  label: "UFW Firewall",            desc: "SSH/HTTP/SIP/RTP/SMPP ports open, MariaDB blocked external" },
+  { num: 10, label: "Fail2Ban",                desc: "Brute-force protection for SSH" },
+  { num: 11, label: "Kannel Sync from DB",     desc: "Run gen-kannel-conf.sh — reads active clients/suppliers, writes kannel.conf, reloads" },
+  { num: 12, label: "Save Credentials",        desc: "Write /root/.net2app_credentials with all passwords" },
+  { num: 13, label: "Health Check",            desc: "Verify all services + print secrets to set in Base44" },
+];
+
+// ─── CREDENTIALS SUMMARY TABLE ───────────────────────────────────────────────
+const CRED_ROWS = [
+  { category: "SSH", icon: Server, color: "bg-slate-100 text-slate-700", rows: [
+    { label: "Host",     value: CREDS.serverIp },
+    { label: "User",     value: "root" },
+    { label: "Password", value: CREDS.rootPass, secret: true },
+  ]},
+  { category: "MariaDB", icon: Database, color: "bg-blue-100 text-blue-700", rows: [
+    { label: "Root password",  value: CREDS.dbRootPass, secret: true },
+    { label: "App user",       value: CREDS.dbAppUser },
+    { label: "App password",   value: CREDS.dbAppPass, secret: true },
+    { label: "Database",       value: CREDS.dbName },
+  ]},
+  { category: "Kannel", icon: Wifi, color: "bg-green-100 text-green-700", rows: [
+    { label: "Admin/Status password", value: CREDS.kannelPass, secret: true },
+    { label: "Admin port",            value: "13000" },
+    { label: "Smsbox port",           value: "13001" },
+    { label: "SendSMS port",          value: "13013" },
+  ]},
+  { category: "Net2app API", icon: Key, color: "bg-purple-100 text-purple-700", rows: [
+    { label: "Port",    value: "5000" },
+    { label: "Token",   value: CREDS.apiToken, secret: true },
+    { label: "Kannel sync endpoint", value: "POST /api/kannel/sync" },
+  ]},
 ];
 
 export default function FullDeployScript() {
   const [copied, setCopied] = useState(false);
+  const [copiedKannel, setCopiedKannel] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(true);
   const [pushing, setPushing] = useState(false);
   const [pushed, setPushed] = useState(false);
-  const [serverIp, setServerIp] = useState("192.95.36.154");
-  const [apiToken, setApiToken] = useState("CHANGE_THIS_SECRET_TOKEN");
-  const [kannelPass, setKannelPass] = useState("CHANGE_ADMIN_PASSWORD");
+  const [showSecrets, setShowSecrets] = useState({});
+  const [appId, setAppId] = useState(CREDS.appId);
+  const [appBaseUrl] = useState(CREDS.appBaseUrl);
+  const [funcVersion] = useState(CREDS.funcVersion);
 
-  const SCRIPT = buildScript();
+  const creds = { ...CREDS, appId, appBaseUrl, funcVersion };
+  const SCRIPT = buildScript(creds);
+  const KANNEL_SCRIPT = buildKannelSyncScript(creds);
 
   const copy = () => {
     navigator.clipboard.writeText(SCRIPT);
     setCopied(true);
-    toast.success("Script copied to clipboard!");
+    toast.success("deploy.sh copied to clipboard!");
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyKannel = () => {
+    navigator.clipboard.writeText(KANNEL_SCRIPT);
+    setCopiedKannel(true);
+    toast.success("gen-kannel-conf.sh copied!");
+    setTimeout(() => setCopiedKannel(false), 2000);
   };
 
   const copyLine = (text) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied!");
   };
+
+  const toggleSecret = (key) => setShowSecrets(p => ({ ...p, [key]: !p[key] }));
 
   const pushToGithub = async () => {
     setPushing(true);
@@ -476,11 +756,24 @@ export default function FullDeployScript() {
         repo: "eliasewu/net2app.com",
         path: "deploy.sh",
         sha: sha || undefined,
-        message: "Update deploy.sh — full 12-step Debian deploy v3.1",
+        message: "Update deploy.sh — 13-step deploy with gen-kannel-conf + fixed nginx + correct passwords",
         content: SCRIPT,
       });
+      // Also push the standalone kannel sync script
+      const shaKRes = await base44.functions.invoke("githubRelease", {
+        action: "get_file", repo: "eliasewu/net2app.com", path: "gen-kannel-conf.sh"
+      });
+      const shaK = shaKRes?.data?.sha;
+      await base44.functions.invoke("githubRelease", {
+        action: "push_file",
+        repo: "eliasewu/net2app.com",
+        path: "gen-kannel-conf.sh",
+        sha: shaK || undefined,
+        message: "Add gen-kannel-conf.sh — auto-sync kannel.conf from MariaDB",
+        content: KANNEL_SCRIPT,
+      });
       setPushed(true);
-      toast.success("deploy.sh pushed to GitHub!");
+      toast.success("deploy.sh + gen-kannel-conf.sh pushed to GitHub!");
     } catch (e) {
       toast.error("Push failed: " + e.message);
     } finally {
@@ -494,8 +787,12 @@ export default function FullDeployScript() {
     <div className="space-y-6">
       <PageHeader
         title="Full Deploy Script"
-        description="Complete 12-step Debian 12 deployment — MariaDB + Kannel + Node.js API + Nginx + UFW"
+        description="13-step Debian 12 deployment — Kannel auto-sync from DB, fixed Nginx SPA, all passwords pre-configured"
       >
+        <Button variant="outline" size="sm" onClick={copyKannel} className="gap-1.5">
+          {copiedKannel ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          Copy Kannel Sync Script
+        </Button>
         <Button variant="outline" size="sm" onClick={pushToGithub} disabled={pushing} className="gap-1.5">
           {pushing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
            pushed   ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> :
@@ -504,15 +801,112 @@ export default function FullDeployScript() {
         </Button>
         <Button size="sm" onClick={copy} className="gap-1.5">
           {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? "Copied!" : "Copy Script"}
+          {copied ? "Copied!" : "Copy deploy.sh"}
         </Button>
       </PageHeader>
 
-      {/* One-line command */}
+      {/* ── CREDENTIALS SUMMARY ── */}
+      <Card className="border-slate-300">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Key className="w-4 h-4 text-amber-600" />
+            Complete Credentials & Access Summary
+            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 ml-1">All Passwords Pre-Configured</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid md:grid-cols-2 gap-4">
+            {CRED_ROWS.map(({ category, icon: Icon, color, rows }) => (
+              <div key={category} className="border rounded-lg overflow-hidden">
+                <div className={`flex items-center gap-2 px-3 py-2 ${color} font-semibold text-xs`}>
+                  <Icon className="w-3.5 h-3.5" />
+                  {category}
+                </div>
+                <div className="divide-y">
+                  {rows.map(({ label, value, secret }) => {
+                    const sk = `${category}_${label}`;
+                    const shown = showSecrets[sk];
+                    return (
+                      <div key={label} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                        <span className="text-muted-foreground w-36 shrink-0">{label}</span>
+                        <code className="font-mono font-medium flex-1 truncate">
+                          {secret && !shown ? "•".repeat(Math.min(value.length, 14)) : value}
+                        </code>
+                        <div className="flex gap-1 shrink-0">
+                          {secret && (
+                            <button onClick={() => toggleSecret(sk)} className="text-muted-foreground hover:text-foreground p-0.5">
+                              {shown ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                          )}
+                          <button onClick={() => copyLine(value)} className="text-muted-foreground hover:text-foreground p-0.5">
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Base44 secrets to set */}
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-xs font-bold text-blue-800 mb-2">Set these 4 secrets in Base44 Dashboard → Settings → Secrets</p>
+            <div className="grid md:grid-cols-2 gap-2">
+              {[
+                ["SERVER_API_URL",    `http://${CREDS.serverIp}:5000`],
+                ["SERVER_API_TOKEN",  CREDS.apiToken],
+                ["KANNEL_ADMIN_URL",  `http://${CREDS.serverIp}:13000`],
+                ["KANNEL_ADMIN_PASS", CREDS.kannelPass],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center gap-2 bg-white rounded px-3 py-1.5 border border-blue-200">
+                  <code className="text-xs font-mono font-semibold text-blue-800 shrink-0 w-40">{k}</code>
+                  <code className="text-xs font-mono text-gray-700 flex-1 truncate">{v}</code>
+                  <button onClick={() => copyLine(v)} className="text-muted-foreground hover:text-foreground shrink-0 p-1">
+                    <Copy className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── KANNEL SYNC EXPLANATION ── */}
       <Card className="border-green-200 bg-green-50">
+        <CardContent className="p-4 space-y-3">
+          <p className="text-sm font-bold text-green-800 flex items-center gap-2">
+            <Wifi className="w-4 h-4" /> How Kannel Auto-Config Works
+          </p>
+          <div className="grid md:grid-cols-3 gap-3 text-xs text-green-800">
+            <div className="bg-white rounded-lg border border-green-200 p-3">
+              <p className="font-bold mb-1">1. Add Clients / Suppliers in UI</p>
+              <p className="text-green-700">Go to Clients or Suppliers, set connection type = SMPP, fill in IP / port / username / password.</p>
+            </div>
+            <div className="bg-white rounded-lg border border-green-200 p-3">
+              <p className="font-bold mb-1">2. Click "Sync Kannel" or run script</p>
+              <p className="text-green-700">From SMPP Gateway page → Sync button calls <code className="font-mono bg-green-100 px-1 rounded">POST /api/kannel/sync</code> which runs gen-kannel-conf.sh</p>
+            </div>
+            <div className="bg-white rounded-lg border border-green-200 p-3">
+              <p className="font-bold mb-1">3. kannel.conf auto-written + reloaded</p>
+              <p className="text-green-700">Script reads all active SMPP suppliers (smsc blocks) + clients (smpp-server blocks) from MariaDB and HUPs bearerbox.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 bg-gray-900 rounded-lg px-4 py-2">
+            <code className="flex-1 text-sm text-green-400 font-mono">bash /opt/net2app-api/gen-kannel-conf.sh</code>
+            <button onClick={() => copyLine("bash /opt/net2app-api/gen-kannel-conf.sh")} className="text-gray-400 hover:text-white p-1">
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── ONE LINE DEPLOY ── */}
+      <Card className="border-orange-200 bg-orange-50">
         <CardContent className="p-4">
-          <p className="text-xs font-bold text-green-800 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-            <Terminal className="w-3.5 h-3.5" /> One-Line Deploy (run as root on Debian 12 server)
+          <p className="text-xs font-bold text-orange-800 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+            <Terminal className="w-3.5 h-3.5" /> One-Line Deploy (run as root on Debian 12)
           </p>
           <div className="flex items-center gap-2 bg-gray-900 rounded-lg px-4 py-3">
             <code className="flex-1 text-sm text-green-400 font-mono break-all">{ONE_LINE}</code>
@@ -520,156 +914,46 @@ export default function FullDeployScript() {
               <Copy className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-xs text-green-700 mt-2">
-            💡 Your server: <code className="font-mono bg-green-100 px-1 rounded">ssh root@192.95.36.154</code> — password: Telco1988
+          <p className="text-xs text-orange-700 mt-2">
+            SSH: <code className="font-mono bg-orange-100 px-1 rounded">ssh root@{CREDS.serverIp}</code> — password: <code className="font-mono bg-orange-100 px-1 rounded">{CREDS.rootPass}</code>
           </p>
         </CardContent>
       </Card>
 
-      {/* Connectivity guide — interactive */}
-      <Card className="border-blue-200 bg-blue-50">
-        <CardContent className="p-4 space-y-4">
-          <p className="text-sm font-bold text-blue-900">After Deploy — Configure Your Secrets</p>
-          <p className="text-xs text-blue-700">Enter the values you used when running the deploy script, then copy each secret into Base44 Dashboard → Settings → Secrets.</p>
-
-          {/* Input fields */}
-          <div className="grid md:grid-cols-3 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-blue-800">Server IP</label>
-              <input
-                className="w-full text-xs font-mono border border-blue-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                value={serverIp}
-                onChange={e => setServerIp(e.target.value)}
-                placeholder="192.95.36.154"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-blue-800">API_TOKEN (from deploy script)</label>
-              <input
-                className="w-full text-xs font-mono border border-blue-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                value={apiToken}
-                onChange={e => setApiToken(e.target.value)}
-                placeholder="your-secret-token"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-blue-800">KANNEL_ADMIN_PASS</label>
-              <input
-                className="w-full text-xs font-mono border border-blue-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                value={kannelPass}
-                onChange={e => setKannelPass(e.target.value)}
-                placeholder="CHANGE_ADMIN_PASSWORD"
-              />
-            </div>
-          </div>
-
-          {/* Generated secrets */}
-          <div className="space-y-2">
-            {[
-              ["SERVER_API_URL",    `http://${serverIp}:5000`],
-              ["SERVER_API_TOKEN",  apiToken],
-              ["KANNEL_ADMIN_URL",  `http://${serverIp}:13000`],
-              ["KANNEL_ADMIN_PASS", kannelPass],
-            ].map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2 bg-white rounded px-3 py-2 border border-blue-200">
-                <code className="text-xs font-mono font-semibold text-blue-800 shrink-0 w-44">{k}</code>
-                <code className="text-xs font-mono text-gray-700 flex-1 truncate">{v}</code>
-                <button onClick={() => copyLine(v)} className="text-muted-foreground hover:text-foreground shrink-0 p-1 rounded hover:bg-blue-100" title="Copy value only">
-                  <Copy className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-            <p className="text-xs text-green-800 font-semibold mb-1">✅ Once all 4 secrets are saved in Base44:</p>
-            <ul className="text-xs text-green-700 space-y-0.5 list-disc list-inside">
-              <li>SMPP Gateway → Test Bind buttons go live</li>
-              <li>Kannel Reload works from the dashboard</li>
-              <li>DLR callbacks update SMS log statuses in real-time</li>
-              <li>Clients/Suppliers auto-sync to Kannel on every save</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Local Frontend Connection Guide */}
-      <Card className="border-purple-200 bg-purple-50">
+      {/* ── BASE44 APP ID INPUT ── */}
+      <Card className="border-yellow-200 bg-yellow-50">
         <CardContent className="p-4 space-y-3">
-          <p className="text-sm font-bold text-purple-900">How to Connect Your Local Frontend to the Debian Server</p>
-          <p className="text-xs text-purple-700">The Base44 frontend talks to the Debian server via the SMPP API (port 5000). Follow these steps to make all action buttons work:</p>
-          <div className="space-y-3">
-            {[
-              {
-                step: "1",
-                title: "SSH into server & verify API is running",
-                cmds: [
-                  `ssh root@${serverIp}`,
-                  "pm2 status",
-                  "curl http://127.0.0.1:5000/health",
-                ],
-              },
-              {
-                step: "2",
-                title: "Open port 5000 for your IP (or use a tunnel)",
-                cmds: [
-                  `ufw allow from YOUR_LOCAL_IP to any port 5000 comment "Base44 API access"`,
-                  "# OR use SSH tunnel (more secure):",
-                  `ssh -L 5000:127.0.0.1:5000 root@${serverIp} -N`,
-                  "# Then set SERVER_API_URL=http://127.0.0.1:5000 in Base44 secrets",
-                ],
-              },
-              {
-                step: "3",
-                title: "Set secrets in Base44 Dashboard → Settings → Secrets",
-                cmds: [
-                  `SERVER_API_URL = http://${serverIp}:5000`,
-                  `SERVER_API_TOKEN = ${apiToken}`,
-                  `KANNEL_ADMIN_URL = http://${serverIp}:13000`,
-                  `KANNEL_ADMIN_PASS = ${kannelPass}`,
-                ],
-              },
-              {
-                step: "4",
-                title: "Verify from Base44 — SMPP Gateway page → click 'Reload Kannel'",
-                cmds: [
-                  "Expected response: { ok: true, message: 'Kannel reloaded' }",
-                  "If 401: API_TOKEN mismatch — recheck secret",
-                  "If ECONNREFUSED: API server not running — run: pm2 restart net2app-api",
-                  "If timeout: port 5000 blocked — check UFW / firewall",
-                ],
-              },
-            ].map(({ step, title, cmds }) => (
-              <div key={step} className="bg-white rounded-lg border border-purple-200 p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{step}</span>
-                  <p className="text-xs font-semibold text-purple-900">{title}</p>
-                </div>
-                <div className="space-y-1">
-                  {cmds.map((cmd, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-gray-900 rounded px-2 py-1">
-                      <code className="text-xs text-green-400 font-mono flex-1">{cmd}</code>
-                      {!cmd.startsWith('#') && !cmd.startsWith('Expected') && !cmd.startsWith('If ') && (
-                        <button onClick={() => copyLine(cmd)} className="text-gray-500 hover:text-white shrink-0">
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+          <p className="text-xs font-bold text-yellow-800">Base44 App ID — needed for frontend Vite build</p>
+          <div className="flex gap-3 items-end">
+            <div className="flex-1 space-y-1">
+              <label className="text-xs font-semibold text-yellow-800">VITE_BASE44_APP_ID</label>
+              <input
+                className="w-full text-xs font-mono border border-yellow-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                value={appId}
+                onChange={e => setAppId(e.target.value)}
+                placeholder="Find in your Base44 app URL"
+              />
+            </div>
+            <div className="space-y-1 w-56">
+              <label className="text-xs font-semibold text-yellow-800">VITE_BASE44_APP_BASE_URL</label>
+              <input readOnly className="w-full text-xs font-mono border border-yellow-200 rounded px-2 py-1.5 bg-yellow-100 text-yellow-700" value={appBaseUrl} />
+            </div>
+            <div className="space-y-1 w-24">
+              <label className="text-xs font-semibold text-yellow-800">Functions Ver</label>
+              <input readOnly className="w-full text-xs font-mono border border-yellow-200 rounded px-2 py-1.5 bg-yellow-100 text-yellow-700" value={funcVersion} />
+            </div>
           </div>
+          <p className="text-xs text-yellow-700">Find your App ID in the Base44 app URL: <code className="font-mono bg-yellow-100 px-1 rounded">app.base44.com/apps/<strong>YOUR_APP_ID</strong></code></p>
         </CardContent>
       </Card>
 
-      {/* Steps overview */}
+      {/* ── STEPS OVERVIEW ── */}
       <Card>
         <CardHeader className="pb-2">
           <button className="flex items-center justify-between w-full text-left" onClick={() => setStepsOpen(v => !v)}>
             <CardTitle className="text-sm flex items-center gap-2">
               What this script does
-              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">12 Steps</Badge>
+              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">13 Steps</Badge>
             </CardTitle>
             {stepsOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
           </button>
@@ -693,7 +977,7 @@ export default function FullDeployScript() {
         )}
       </Card>
 
-      {/* Full script viewer */}
+      {/* ── FULL SCRIPT VIEWER ── */}
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
@@ -710,6 +994,27 @@ export default function FullDeployScript() {
         <CardContent className="p-0">
           <pre className="bg-gray-950 text-green-400 text-xs font-mono p-4 rounded-b-xl overflow-x-auto overflow-y-auto max-h-[600px] whitespace-pre leading-relaxed">
             {SCRIPT}
+          </pre>
+        </CardContent>
+      </Card>
+
+      {/* ── KANNEL SYNC SCRIPT VIEWER ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Wifi className="w-4 h-4 text-green-600" />
+              Standalone Kannel Sync Script — gen-kannel-conf.sh
+            </CardTitle>
+            <Button size="sm" variant="outline" onClick={copyKannel} className="gap-1.5 h-7 text-xs">
+              {copiedKannel ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              {copiedKannel ? "Copied!" : "Copy"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <pre className="bg-gray-950 text-cyan-400 text-xs font-mono p-4 rounded-b-xl overflow-x-auto overflow-y-auto max-h-96 whitespace-pre leading-relaxed">
+            {KANNEL_SCRIPT}
           </pre>
         </CardContent>
       </Card>
