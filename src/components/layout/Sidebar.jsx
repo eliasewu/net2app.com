@@ -65,6 +65,7 @@ const DEFAULT_NAV_GROUPS = [
       { label: "Settings", icon: Settings, path: "/settings" },
       { label: "Tenants", icon: Users, path: "/tenants" },
       { label: "User Mgmt", icon: Shield, path: "/users" },
+      { label: "System Setup", icon: Zap, path: "/system-setup" },
       { label: "GitHub Releases", icon: GitBranch, path: "/github-releases" },
       { label: "Website Manager", icon: Globe, path: "/landing-admin" },
       { label: "Customer Portal", icon: Users, path: "/portal-manager" },

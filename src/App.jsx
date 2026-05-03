@@ -45,6 +45,7 @@ import RoutingRules from './pages/RoutingRules';
 import RoutingAnalytics from './pages/RoutingAnalytics';
 import GithubReleases from './pages/GithubReleases';
 import FullDeployScript from './pages/FullDeployScript';
+import SystemSetup from './pages/SystemSetup';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -106,6 +107,7 @@ const AuthenticatedApp = () => {
         <Route path="/routing-analytics" element={<RoutingAnalytics />} />
         <Route path="/github-releases" element={<GithubReleases />} />
         <Route path="/full-deploy" element={<FullDeployScript />} />
+        <Route path="/system-setup" element={<SystemSetup />} />
       </Route>
       <Route path="/portal" element={<CustomerPortal />} />
       <Route path="*" element={<PageNotFound />} />
