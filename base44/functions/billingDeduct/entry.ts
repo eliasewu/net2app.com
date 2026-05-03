@@ -65,19 +65,29 @@ Deno.serve(async (req) => {
     // Only charge once — check if already billed on a previous status
     const alreadyClientBilled = log.client_billed === true;
 
+    const isCreate = event?.type === 'create';
+    const isUpdate = event?.type === 'update';
+    const oldStatus = old_data?.status;
+
     if (!alreadyClientBilled) {
       if (clientBillingType === 'send') {
-        // Charge on anything except blocked
-        doClientCharge = !['blocked'].includes(status);
+        // Charge on CREATE (gateway received) — anything except blocked
+        if (isCreate && !['blocked'].includes(status)) doClientCharge = true;
+        // Also fire on update if was previously pending (e.g. send fires on first status change)
+        if (isUpdate && oldStatus === 'pending' && !['blocked', 'pending'].includes(status)) doClientCharge = true;
       } else if (clientBillingType === 'submit') {
-        // Charge once SMSC accepts (not on failed/rejected/blocked/pending)
-        doClientCharge = !['failed', 'rejected', 'blocked', 'pending'].includes(status);
+        // Charge once SMSC accepts — status moves to sent/delivered (not failed/rejected/blocked/pending)
+        if (!['failed', 'rejected', 'blocked', 'pending'].includes(status)) {
+          // Only on status change from pending/sent (avoids duplicate on delivered)
+          if (isCreate && !['failed', 'rejected', 'blocked', 'pending'].includes(status)) doClientCharge = true;
+          if (isUpdate && ['pending', 'sent'].includes(oldStatus) && !['failed', 'rejected', 'blocked', 'pending'].includes(status)) doClientCharge = true;
+        }
       } else if (clientBillingType === 'delivery') {
         // Charge only on delivered
         if (status === 'delivered') {
           doClientCharge = true;
-        } else if (client.force_dlr && !['failed', 'rejected', 'blocked', 'pending'].includes(status)) {
-          // force_dlr: a synthetic delivered was sent to client, so charge them
+        } else if (client.force_dlr && isUpdate && ['pending', 'sent'].includes(oldStatus) && !['failed', 'rejected', 'blocked', 'pending'].includes(status)) {
+          // force_dlr: synthetic delivered was sent to client
           doClientCharge = true;
         }
       }
@@ -89,9 +99,11 @@ Deno.serve(async (req) => {
 
     if (!alreadySupplierBilled && supplier) {
       if (supplierBillingType === 'send') {
-        doSupplierCost = !['blocked'].includes(status);
+        if (isCreate && !['blocked'].includes(status)) doSupplierCost = true;
+        if (isUpdate && oldStatus === 'pending' && !['blocked', 'pending'].includes(status)) doSupplierCost = true;
       } else if (supplierBillingType === 'submit') {
-        doSupplierCost = !['failed', 'rejected', 'blocked', 'pending'].includes(status);
+        if (isCreate && !['failed', 'rejected', 'blocked', 'pending'].includes(status)) doSupplierCost = true;
+        if (isUpdate && ['pending', 'sent'].includes(oldStatus) && !['failed', 'rejected', 'blocked', 'pending'].includes(status)) doSupplierCost = true;
       } else if (supplierBillingType === 'delivery') {
         doSupplierCost = status === 'delivered';
       }

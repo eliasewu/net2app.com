@@ -39,16 +39,19 @@ function supplierKannelBlock(s) {
 }
 
 function clientSmppBlock(c, port) {
-  const id = (c.name || c.id).replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+  // Kannel smpp-server block — one per client SMPP port
+  // The client binds TO this port on the kannel bearerbox
   return [
     `group = smpp-server`,
-    `smpp-server-id = client_${id}`,
     `port = ${port}`,
+    `smpp-server-id = "${(c.name || c.id).replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')}"`,
     `system-id = "${c.smpp_username}"`,
     `password = "${c.smpp_password}"`,
     `system-type = ""`,
-    `log-file = "/var/log/kannel/client_${id}.log"`,
-    `log-level = 1`,
+    `interface-version = 34`,
+    `max-binds = 10`,
+    `allow-ip = "*.*.*.*"`,
+    `throughput = ${c.tps_limit || 100}`,
   ].join('\n');
 }
 

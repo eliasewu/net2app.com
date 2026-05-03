@@ -670,6 +670,88 @@ app.post('/api/tenants', adminOnly, async (req,res) => {
 });
 app.put('/api/tenants/:id', adminOnly, async (req,res) => { const d=req.body; await pool.execute('UPDATE tenants SET company_name=?,status=?,sms_limit=?,monthly_price=?,expiry_date=? WHERE id=?',[d.company_name,d.status,d.sms_limit,d.monthly_price,d.expiry_date||null,req.params.id]); res.json({ok:true}); });
 app.delete('/api/tenants/:id', adminOnly, async (req,res) => { await pool.execute('DELETE FROM tenants WHERE id=?',[req.params.id]); res.json({ok:true}); });
+// NUMBER TRANSLATIONS
+app.get('/api/translations', async (req,res) => { const [r]=await pool.execute('SELECT * FROM number_translations ORDER BY priority,created_at DESC'); res.json({ok:true,data:r}); });
+app.post('/api/translations', async (req,res) => {
+  const d=req.body; const id=uuid();
+  await pool.execute('INSERT INTO number_translations (id,name,match_pattern,replace_with,match_type,apply_to,priority,is_active,notes) VALUES (?,?,?,?,?,?,?,?,?)',[id,d.name||'',d.match_pattern||'',d.replace_with||'',d.match_type||'prefix',d.apply_to||'destination',d.priority||10,d.is_active!==false?1:0,d.notes||'']);
+  res.json({ok:true,id});
+});
+app.put('/api/translations/:id', async (req,res) => { const d=req.body; await pool.execute('UPDATE number_translations SET name=?,match_pattern=?,replace_with=?,match_type=?,apply_to=?,priority=?,is_active=?,notes=? WHERE id=?',[d.name||'',d.match_pattern||'',d.replace_with||'',d.match_type||'prefix',d.apply_to||'destination',d.priority||10,d.is_active?1:0,d.notes||'',req.params.id]); res.json({ok:true}); });
+app.delete('/api/translations/:id', async (req,res) => { await pool.execute('DELETE FROM number_translations WHERE id=?',[req.params.id]); res.json({ok:true}); });
+// IP ACCESS
+app.get('/api/ip-access', async (req,res) => { const [r]=await pool.execute('SELECT * FROM ip_access ORDER BY created_at DESC'); res.json({ok:true,data:r}); });
+app.post('/api/ip-access', async (req,res) => {
+  const d=req.body; const id=uuid();
+  await pool.execute('INSERT INTO ip_access (id,label,ip_address,cidr,rule_type,apply_to,is_active,notes) VALUES (?,?,?,?,?,?,?,?)',[id,d.label||'',d.ip_address,d.cidr||'',d.rule_type||'allow',d.apply_to||'all',d.is_active!==false?1:0,d.notes||'']);
+  res.json({ok:true,id});
+});
+app.put('/api/ip-access/:id', async (req,res) => { const d=req.body; await pool.execute('UPDATE ip_access SET label=?,ip_address=?,rule_type=?,apply_to=?,is_active=?,notes=? WHERE id=?',[d.label||'',d.ip_address,d.rule_type,d.apply_to,d.is_active?1:0,d.notes||'',req.params.id]); res.json({ok:true}); });
+app.delete('/api/ip-access/:id', async (req,res) => { await pool.execute('DELETE FROM ip_access WHERE id=?',[req.params.id]); res.json({ok:true}); });
+// ROUTING RULES
+app.get('/api/routing-rules', async (req,res) => { const [r]=await pool.execute('SELECT * FROM routing_rules ORDER BY priority,created_at DESC'); res.json({ok:true,data:r}); });
+app.post('/api/routing-rules', async (req,res) => {
+  const d=req.body; const id=uuid();
+  await pool.execute('INSERT INTO routing_rules (id,name,description,rule_type,priority,is_active,match_prefix,match_mcc,match_mnc,match_client_id,match_client_name,supplier_ids,supplier_names,load_balance_weights,lcr_auto,max_cost_per_sms,block_reason,action_on_all_fail,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[id,d.name,d.description||'',d.rule_type||'lcr',d.priority||10,d.is_active!==false?1:0,d.match_prefix||'',d.match_mcc||'',d.match_mnc||'',d.match_client_id||'',d.match_client_name||'',d.supplier_ids||'[]',d.supplier_names||'[]',d.load_balance_weights||'[]',d.lcr_auto?1:0,d.max_cost_per_sms||null,d.block_reason||'',d.action_on_all_fail||'reject',d.notes||'']);
+  res.json({ok:true,id});
+});
+app.put('/api/routing-rules/:id', async (req,res) => { const d=req.body; await pool.execute('UPDATE routing_rules SET name=?,rule_type=?,priority=?,is_active=?,match_prefix=?,match_mcc=?,supplier_ids=?,supplier_names=?,load_balance_weights=?,notes=? WHERE id=?',[d.name,d.rule_type,d.priority,d.is_active?1:0,d.match_prefix||'',d.match_mcc||'',d.supplier_ids||'[]',d.supplier_names||'[]',d.load_balance_weights||'[]',d.notes||'',req.params.id]); res.json({ok:true}); });
+app.delete('/api/routing-rules/:id', async (req,res) => { await pool.execute('DELETE FROM routing_rules WHERE id=?',[req.params.id]); res.json({ok:true}); });
+// CAMPAIGNS
+app.get('/api/campaigns', async (req,res) => { const [r]=await pool.execute('SELECT * FROM campaigns ORDER BY created_at DESC'); res.json({ok:true,data:r}); });
+app.post('/api/campaigns', async (req,res) => {
+  const d=req.body; const id=uuid();
+  await pool.execute('INSERT INTO campaigns (id,tenant_id,name,client_id,client_name,supplier_id,route_id,channel,sender_id,content,total_recipients,status,scheduled_at,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[id,d.tenant_id||'default',d.name,d.client_id,d.client_name||'',d.supplier_id||null,d.route_id||null,d.channel||'sms',d.sender_id||'',d.content||'',d.total_recipients||0,d.status||'draft',d.scheduled_at||null,d.notes||'']);
+  res.json({ok:true,id});
+});
+app.put('/api/campaigns/:id', async (req,res) => { const d=req.body; await pool.execute('UPDATE campaigns SET name=?,status=?,sent_count=?,delivered_count=?,failed_count=? WHERE id=?',[d.name,d.status,d.sent_count||0,d.delivered_count||0,d.failed_count||0,req.params.id]); res.json({ok:true}); });
+app.delete('/api/campaigns/:id', async (req,res) => { await pool.execute('DELETE FROM campaigns WHERE id=?',[req.params.id]); res.json({ok:true}); });
+// CONTENT TEMPLATES
+app.get('/api/content-templates', async (req,res) => { const [r]=await pool.execute('SELECT * FROM content_templates ORDER BY created_at DESC'); res.json({ok:true,data:r}); });
+app.post('/api/content-templates', async (req,res) => {
+  const d=req.body; const id=uuid();
+  await pool.execute('INSERT INTO content_templates (id,name,template_type,content,variants,is_active,notes) VALUES (?,?,?,?,?,?,?)',[id,d.name,d.template_type||'rotation',d.content||'',d.variants||'[]',d.is_active!==false?1:0,d.notes||'']);
+  res.json({ok:true,id});
+});
+app.delete('/api/content-templates/:id', async (req,res) => { await pool.execute('DELETE FROM content_templates WHERE id=?',[req.params.id]); res.json({ok:true}); });
+// VOICE OTP
+app.get('/api/voice-otp', async (req,res) => {
+  const {client_id,status,limit=50}=req.query; let q='SELECT * FROM voice_otp WHERE 1=1'; const p=[];
+  if(client_id){q+=' AND client_id=?';p.push(client_id);} if(status){q+=' AND status=?';p.push(status);}
+  const [r]=await pool.execute(q+' ORDER BY submit_time DESC LIMIT ?',[...p,parseInt(limit)]); res.json({ok:true,data:r});
+});
+app.post('/api/voice-otp', async (req,res) => {
+  const d=req.body; if(!d.destination||!d.client_id) return res.status(400).json({error:'destination+client_id required'});
+  const id=uuid(); const msg_id='VOTP-'+Date.now();
+  await pool.execute('INSERT INTO voice_otp (tenant_id,message_id,client_id,supplier_id,destination,otp_code,status) VALUES (?,?,?,?,?,?,?)',[d.tenant_id||'default',msg_id,d.client_id,d.supplier_id||null,d.destination,d.otp_code||'',d.status||'pending']);
+  res.json({ok:true,message_id:msg_id});
+});
+// SUPPLIER HEALTH
+app.get('/api/supplier-health', async (req,res) => { const [r]=await pool.execute('SELECT * FROM supplier_health ORDER BY last_checked_at DESC'); res.json({ok:true,data:r}); });
+// BILLING — topup/deduct
+app.post('/api/billing/deduct', adminOnly, async (req,res) => {
+  const {client_id,amount,reason}=req.body;
+  await pool.execute('UPDATE clients SET balance=balance-? WHERE id=?',[parseFloat(amount),client_id]);
+  const [[r]]=await pool.execute('SELECT balance FROM clients WHERE id=?',[client_id]); res.json({ok:true,new_balance:r?.balance});
+});
+app.post('/api/billing/topup', adminOnly, async (req,res) => {
+  const {client_id,amount}=req.body;
+  await pool.execute('UPDATE clients SET balance=balance+? WHERE id=?',[parseFloat(amount),client_id]);
+  const [[r]]=await pool.execute('SELECT balance FROM clients WHERE id=?',[client_id]); res.json({ok:true,new_balance:r?.balance});
+});
+// SMS LOG — update status (for DLR + billing)
+app.put('/api/sms-logs/:id', async (req,res) => {
+  const {status,delivery_time,dest_msg_id,fail_reason}=req.body;
+  await pool.execute('UPDATE sms_log SET status=?,delivery_time=?,dest_msg_id=?,fail_reason=?,updated_at=NOW() WHERE id=? OR message_id=?',[status,delivery_time||null,dest_msg_id||null,fail_reason||null,req.params.id,req.params.id]);
+  res.json({ok:true});
+});
+// SMPP RELOAD
+app.post('/api/smpp/reload', (req,res) => { exec('kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null || true',(err)=>{res.json({ok:true,message:'Reload signal sent'});}); });
+app.post('/api/smpp/user/remove', async (req,res) => {
+  const {smpp_username}=req.body;
+  await pool.execute("UPDATE smpp_users SET status='inactive' WHERE smpp_username=?",[smpp_username]);
+  res.json({ok:true});
+});
 
 // SPA fallback — app.use() is express@4 compatible (not app.get('*') which breaks in express v5)
 app.use((req,res) => {
@@ -878,9 +960,10 @@ export function buildDeployScript(c) {
     '  tps=${tps:-100}',
     '  printf "\\ngroup = smsc\\nsmsc = smpp\\nsmsc-id = \\"%s\\"\\nhost = %s\\nport = %s\\nsmsc-username = \\"%s\\"\\nsmsc-password = \\"%s\\"\\ntransceiver-mode = true\\nreconnect-delay = 10\\nmax-pending-submits = %s\\n" "$name" "$ip" "$port" "$user" "$pass" "$tps" >> "$CONF"',
     'done',
-    "mysql -u \"$DB_USER\" -p\"$DB_PASS\" \"$DB_NAME\" -N -B -e \"SELECT smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type='SMPP' AND status='active' AND smpp_username IS NOT NULL AND smpp_username<>''\" 2>/dev/null | while IFS=$'\\t' read -r user pass port tps; do",
+    "mysql -u \"$DB_USER\" -p\"$DB_PASS\" \"$DB_NAME\" -N -B -e \"SELECT name,smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type='SMPP' AND status='active' AND smpp_username IS NOT NULL AND smpp_username<>''\" 2>/dev/null | while IFS=$'\\t' read -r cname user pass port tps; do",
     '  port=${port:-9096}; tps=${tps:-100}',
-    '  printf "\\ngroup = smpp-server\\nsystem-id = \\"%s\\"\\npassword = \\"%s\\"\\nport = %s\\nmax-sms-per-second = %s\\n" "$user" "$pass" "$port" "$tps" >> "$CONF"',
+    '  sid=$(echo "$cname" | tr " " "_" | tr -cd "a-zA-Z0-9_-")',
+    '  printf "\\ngroup = smpp-server\\nport = %s\\nsmpp-server-id = \\"%s\\"\\nsystem-id = \\"%s\\"\\npassword = \\"%s\\"\\nsystem-type = \\"\\"\\ninterface-version = 34\\nmax-binds = 10\\nallow-ip = \\"*.*.*.*\\"\\nthroughput = %s\\n" "$port" "$sid" "$user" "$pass" "$tps" >> "$CONF"',
     'done',
     'kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null || true',
     'echo "[OK] kannel.conf regenerated and reloaded"',
@@ -1082,9 +1165,10 @@ export function buildKannelSyncScript(c) {
     '  printf "\\ngroup = smsc\\nsmsc = smpp\\nsmsc-id = \\"%s\\"\\nhost = %s\\nport = %s\\nsmsc-username = \\"%s\\"\\nsmsc-password = \\"%s\\"\\ntransceiver-mode = true\\nreconnect-delay = 10\\nmax-pending-submits = %s\\n" "$name" "$ip" "$port" "$user" "$pass" "$tps" >> "$CONF"',
     'done',
     'echo "# === SMPP Clients auto-gen $(date) ===" >> "$CONF"',
-    "mysql -u \"$DB_USER\" -p\"$DB_PASS\" \"$DB_NAME\" -N -B -e \"SELECT smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type='SMPP' AND status='active' AND smpp_username IS NOT NULL AND smpp_username<>''\" 2>/dev/null | while IFS=$'\\t' read -r user pass port tps; do",
+    "mysql -u \"$DB_USER\" -p\"$DB_PASS\" \"$DB_NAME\" -N -B -e \"SELECT name,smpp_username,smpp_password,smpp_port,tps_limit FROM clients WHERE connection_type='SMPP' AND status='active' AND smpp_username IS NOT NULL AND smpp_username<>''\" 2>/dev/null | while IFS=$'\\t' read -r cname user pass port tps; do",
     '  port=${port:-9096}; tps=${tps:-100}',
-    '  printf "\\ngroup = smpp-server\\nsystem-id = \\"%s\\"\\npassword = \\"%s\\"\\nport = %s\\nmax-sms-per-second = %s\\n" "$user" "$pass" "$port" "$tps" >> "$CONF"',
+    '  sid=$(echo "$cname" | tr " " "_" | tr -cd "a-zA-Z0-9_-")',
+    '  printf "\\ngroup = smpp-server\\nport = %s\\nsmpp-server-id = \\"%s\\"\\nsystem-id = \\"%s\\"\\npassword = \\"%s\\"\\nsystem-type = \\"\\"\\ninterface-version = 34\\nmax-binds = 10\\nallow-ip = \\"*.*.*.*\\"\\nthroughput = %s\\n" "$port" "$sid" "$user" "$pass" "$tps" >> "$CONF"',
     'done',
     'kill -HUP $(pidof bearerbox) 2>/dev/null || pkill -HUP bearerbox 2>/dev/null || true',
     'echo "[OK] kannel.conf updated → $CONF (backup: $BAK)"',

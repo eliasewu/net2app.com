@@ -91,18 +91,20 @@ function supplierToKannelBlock(s) {
   ].filter(l => l !== '').join('\n');
 }
 
-// Generate smpp-server block for a client
+// Generate smpp-server block for a client (Kannel listens on this port for client binds)
 function clientToKannelSmppServer(c, port) {
   const id = (c.name || c.id).replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
   return [
     `group = smpp-server`,
-    `smpp-server-id = client_${id}`,
     `port = ${port}`,
+    `smpp-server-id = "${id}"`,
     `system-id = "${c.smpp_username}"`,
     `password = "${c.smpp_password}"`,
     `system-type = ""`,
-    `log-file = "/var/log/kannel/client_${id}.log"`,
-    `log-level = 1`,
+    `interface-version = 34`,
+    `max-binds = 10`,
+    `allow-ip = "*.*.*.*"`,
+    `throughput = ${c.tps_limit || 100}`,
   ].join('\n');
 }
 
