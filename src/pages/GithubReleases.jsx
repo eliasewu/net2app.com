@@ -9,8 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/shared/PageHeader";
-import { GitBranch, Tag, Plus, Trash2, ExternalLink, RefreshCw, Package } from "lucide-react";
+import { GitBranch, Tag, Plus, Trash2, ExternalLink, RefreshCw, Package, Upload } from "lucide-react";
 import DeployScriptViewer from "@/components/github/DeployScriptViewer";
+import { buildDeployScript } from "@/lib/deployScriptBuilder";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -61,6 +62,41 @@ export default function GithubReleases() {
     },
   });
 
+  const pushDeployMut = useMutation({
+    mutationFn: async () => {
+      // 1. Get existing file SHA (needed for update)
+      const fileRes = await invoke("get_file", { path: "deploy.sh" });
+      const sha = fileRes?.data?.sha || null;
+      // 2. Generate latest deploy.sh content
+      const content = buildDeployScript({
+        dbRootPass: "RootPass@2025!",
+        dbAppUser: "net2app",
+        dbAppPass: "Net2App@2025!",
+        dbName: "net2app",
+        kannelPass: "kannel_admin_2025",
+        apiToken: "net2app_api_token_2025",
+        appId: "",
+        appBaseUrl: "https://api.base44.com",
+        funcVersion: "v3",
+      });
+      // 3. Push to GitHub
+      return invoke("push_file", {
+        path: "deploy.sh",
+        content,
+        message: `Update deploy.sh — ${new Date().toISOString()}`,
+        sha,
+      });
+    },
+    onSuccess: (res) => {
+      if (res?.data?.ok === false || res?.data?.status >= 400) {
+        toast.error("Push failed: " + (res?.data?.data?.message || "Unknown error"));
+      } else {
+        toast.success("deploy.sh pushed to GitHub successfully!");
+      }
+    },
+    onError: (e) => toast.error("Push failed: " + e.message),
+  });
+
   const handleCreate = () => {
     if (!form.tag) return toast.error("Tag is required");
     createMut.mutate(form);
@@ -74,9 +110,18 @@ export default function GithubReleases() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="GitHub Releases" description="eliasewu/routing-engine — manage release tags and changelogs">
+      <PageHeader title="GitHub Releases" description="eliasewu/net2app.com — manage release tags and push deploy.sh">
         <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
           <RefreshCw className="w-3.5 h-3.5" />Refresh
+        </Button>
+        <Button
+          variant="outline" size="sm"
+          onClick={() => pushDeployMut.mutate()}
+          disabled={pushDeployMut.isPending}
+          className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          {pushDeployMut.isPending ? "Pushing..." : "Push deploy.sh"}
         </Button>
         <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1.5">
           <Plus className="w-4 h-4" />New Release
