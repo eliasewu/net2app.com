@@ -1,0 +1,52 @@
+{
+  "name": "CdrLog",
+  "type": "object",
+  "properties": {
+    "tenantId": {
+      "type": "string",
+      "description": "Tenant isolation ID"
+    },
+    "userId": {
+      "type": "string",
+      "description": "Reference to user ID"
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "inbound",
+        "outbound"
+      ],
+      "default": "outbound"
+    },
+    "sender": {
+      "type": "string"
+    },
+    "recipient": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "units": {
+      "type": "number",
+      "default": 1
+    },
+    "cost": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "submitted",
+        "delivered",
+        "failed"
+      ],
+      "default": "submitted"
+    }
+  },
+  "required": [
+    "tenantId",
+    "recipient"
+  ]
+}

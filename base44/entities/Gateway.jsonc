@@ -1,0 +1,45 @@
+{
+  "name": "Gateway",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Gateway name"
+    },
+    "protocol": {
+      "type": "string",
+      "enum": [
+        "smpp",
+        "sip",
+        "http_api"
+      ],
+      "default": "smpp"
+    },
+    "host": {
+      "type": "string",
+      "description": "Host/IP address"
+    },
+    "port": {
+      "type": "number",
+      "description": "Port number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "maintenance"
+      ],
+      "default": "active"
+    },
+    "tenantId": {
+      "type": "string",
+      "description": "Tenant isolation ID"
+    }
+  },
+  "required": [
+    "name",
+    "host",
+    "port"
+  ]
+}
