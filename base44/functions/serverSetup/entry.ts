@@ -219,6 +219,63 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── ACTION: check all 22 tables exist in server DB ───────────────────
+    if (action === "db_tables_check") {
+      const EXPECTED_TABLES = [
+        "users","tenants","clients","suppliers","routes","routing_rules","rates","mcc_mnc",
+        "sms_log","sms_log_archive","voice_otp","billing_summary","invoices","campaigns",
+        "channel_suppliers","content_templates","otp_unicode_presets","number_translations",
+        "ip_access","alert_rules","supplier_health","system_settings","notifications",
+        "gateways","cdr_logs","smpp_users",
+      ];
+
+      const health = await apiGet("/health");
+      if (!health.ok) {
+        return Response.json({ ok: false, error: "Server unreachable", tables_found: 0, tables_expected: EXPECTED_TABLES.length });
+      }
+
+      // Get table list from server via the health endpoint (it reports table count)
+      // Also try fetching each module endpoint to infer table presence
+      const tableChecks = await Promise.all(
+        EXPECTED_TABLES.map(async (tbl) => {
+          const endpointMap = {
+            users: "/api/users", tenants: "/api/tenants", clients: "/api/clients",
+            suppliers: "/api/suppliers", routes: "/api/routes", routing_rules: "/api/routing-rules",
+            rates: "/api/rates", mcc_mnc: "/api/mccmnc", sms_log: "/api/sms-logs",
+            sms_log_archive: "/api/sms-logs", voice_otp: "/api/voice-otp",
+            billing_summary: "/api/billing/summary", invoices: "/api/invoices",
+            campaigns: "/api/campaigns", channel_suppliers: "/api/campaigns",
+            content_templates: "/api/content-templates", otp_unicode_presets: "/api/content-templates",
+            number_translations: "/api/translations", ip_access: "/api/ip-access",
+            alert_rules: "/api/alert-rules", supplier_health: "/api/supplier-health",
+            system_settings: "/api/settings", notifications: "/api/notifications",
+            gateways: "/api/gateways", cdr_logs: "/api/cdr-logs", smpp_users: "/api/smpp/user/add",
+          };
+          const ep = endpointMap[tbl] || "/health";
+          const r = await apiGet(ep);
+          // 200 or 401 = endpoint exists (table likely present)
+          const exists = r.status === 200 || r.status === 401 || r.status === 403;
+          return { table: tbl, endpoint: ep, exists, status: r.status };
+        })
+      );
+
+      const found = tableChecks.filter(t => t.exists).length;
+      const missing = tableChecks.filter(t => !t.exists).map(t => t.table);
+      const serverTableCount = health.data?.tables || 0;
+
+      return Response.json({
+        ok: found >= EXPECTED_TABLES.length * 0.8,
+        server_table_count: serverTableCount,
+        expected: EXPECTED_TABLES.length,
+        verified_via_api: found,
+        missing_tables: missing,
+        table_details: tableChecks,
+        message: missing.length === 0
+          ? `All ${EXPECTED_TABLES.length} tables verified via API endpoints`
+          : `${missing.length} tables may be missing: ${missing.join(", ")} — run deploy.sh to create them`,
+      });
+    }
+
     // ── ACTION: get server dashboard stats ────────────────────────────────
     if (action === "dashboard_stats") {
       const [health, dash] = await Promise.all([

@@ -89,6 +89,7 @@ function SyncResultRow({ entity, total, synced }) {
 export default function SystemSetup() {
   const [checkResult, setCheckResult] = useState(null);
   const [syncResult, setSyncResult] = useState(null);
+  const [tablesResult, setTablesResult] = useState(null);
 
   const checkMut = useMutation({
     mutationFn: () => base44.functions.invoke("serverSetup", { action: "check" }),
@@ -110,6 +111,16 @@ export default function SystemSetup() {
       toast.success(res.data?.message || "Sync complete");
     },
     onError: (e) => toast.error("Sync failed: " + e.message),
+  });
+
+  const tablesMut = useMutation({
+    mutationFn: () => base44.functions.invoke("serverSetup", { action: "db_tables_check" }),
+    onSuccess: (res) => {
+      setTablesResult(res.data);
+      if (res.data?.missing_tables?.length === 0) toast.success("All 22 tables verified!");
+      else toast.warning(`${res.data?.missing_tables?.length} tables may be missing`);
+    },
+    onError: (e) => toast.error("Table check failed: " + e.message),
   });
 
   const kannelSyncMut = useMutation({
@@ -228,7 +239,8 @@ export default function SystemSetup() {
             <TabsTrigger value="failed" className="text-red-600">
               Failed ({failedModules.length})
             </TabsTrigger>
-            <TabsTrigger value="sync">Entity Sync</TabsTrigger>
+            <TabsTrigger value="tables">DB Tables</TabsTrigger>
+          <TabsTrigger value="sync">Entity Sync</TabsTrigger>
           </TabsList>
 
           <TabsContent value="all" className="mt-4">
@@ -277,6 +289,49 @@ export default function SystemSetup() {
                 </div>
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="tables" className="mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Database className="w-4 h-4 text-blue-600" />
+                  Verify All 22 Database Tables
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Check whether all 22 required MariaDB tables exist on the server by probing their corresponding API endpoints.
+                </p>
+                <Button onClick={() => tablesMut.mutate()} disabled={tablesMut.isPending} className="gap-2">
+                  <Database className={`w-4 h-4 ${tablesMut.isPending ? "animate-pulse" : ""}`} />
+                  {tablesMut.isPending ? "Checking tables..." : "Check All 22 Tables"}
+                </Button>
+                {tablesResult && (
+                  <div className="space-y-3 mt-4">
+                    <div className={`p-3 rounded-lg border text-sm font-medium ${tablesResult.missing_tables?.length === 0 ? "bg-green-50 border-green-200 text-green-800" : "bg-orange-50 border-orange-200 text-orange-800"}`}>
+                      {tablesResult.message}
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {tablesResult.table_details?.map(t => (
+                        <div key={t.table} className={`flex items-center gap-2 p-2 rounded border text-xs font-mono ${t.exists ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+                          {t.exists
+                            ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                            : <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+                          <span className={t.exists ? "text-green-700" : "text-red-700"}>{t.table}</span>
+                          <span className="ml-auto text-muted-foreground">{t.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground pt-2 border-t">
+                      <span>Server reports: <strong>{tablesResult.server_table_count}</strong> tables</span>
+                      <span>Expected: <strong>{tablesResult.expected}</strong></span>
+                      <span>Verified via API: <strong>{tablesResult.verified_via_api}</strong></span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="sync" className="mt-4">

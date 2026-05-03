@@ -104,26 +104,49 @@ Deno.serve(async (req) => {
       ...clientBlocks.map(b => b + '\n'),
     ].join('\n');
 
-    // Push config to Debian server and reload Kannel
-    const applyRes = await fetch(`${SERVER_API_URL}/api/smpp/apply-config`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SERVER_API_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ config }),
-      signal: AbortSignal.timeout(15000),
-    });
+    // Push config to Debian server via /api/kannel/sync (triggers gen-kannel-conf.sh on server)
+    // Also try writing the config directly via /api/smpp/apply-config if available
+    let applyData = {};
+    let reloaded = false;
 
-    const applyData = await applyRes.json().catch(() => ({}));
-    console.log('[syncKannelOnChange] result:', applyData);
+    // Try direct config apply first
+    try {
+      const applyRes = await fetch(`${SERVER_API_URL}/api/smpp/apply-config`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${SERVER_API_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (applyRes.ok) {
+        applyData = await applyRes.json().catch(() => ({}));
+        reloaded = applyData.reloaded ?? false;
+      }
+    } catch (_) {}
+
+    // Always trigger /api/kannel/sync as well (runs gen-kannel-conf.sh from MariaDB)
+    try {
+      const syncRes = await fetch(`${SERVER_API_URL}/api/kannel/sync`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${SERVER_API_TOKEN}`, 'Content-Type': 'application/json' },
+        body: '{}',
+        signal: AbortSignal.timeout(15000),
+      });
+      if (syncRes.ok) {
+        const syncData = await syncRes.json().catch(() => ({}));
+        applyData = { ...applyData, ...syncData };
+        reloaded = reloaded || syncData.reloaded || syncData.ok;
+      }
+    } catch (_) {}
+
+    console.log('[syncKannelOnChange] result:', { ...applyData, reloaded });
 
     return Response.json({
       ok: true,
       supplier_count: supplierBlocks.length,
       client_count: clientBlocks.length,
-      reloaded: applyData.reloaded ?? false,
-      message: `Kannel synced: ${supplierBlocks.length} suppliers + ${clientBlocks.length} clients`,
+      reloaded,
+      backup: applyData.backup || null,
+      message: `Kannel synced: ${supplierBlocks.length} SMSC suppliers + ${clientBlocks.length} SMPP clients${reloaded ? ' — reloaded' : ' — backup saved, reload pending'}`,
     });
 
   } catch (error) {

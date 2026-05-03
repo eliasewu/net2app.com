@@ -14,11 +14,13 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Shield, Users, Headphones, UserCheck, Pencil, Mail } from "lucide-react";
 import { toast } from "sonner";
 
+// Base44 supports 'admin' and 'user' as system roles.
+// We store custom sub-roles (support, agent) in the role field directly.
 const ROLES = [
-  { value: "admin", label: "Admin", icon: Shield, color: "bg-blue-50 text-blue-700 border-blue-200", desc: "Full access to all features" },
-  { value: "support", label: "Support", icon: Headphones, color: "bg-green-50 text-green-700 border-green-200", desc: "View logs, limited actions" },
-  { value: "agent", label: "Agent", icon: UserCheck, color: "bg-orange-50 text-orange-700 border-orange-200", desc: "Campaign & messaging only" },
-  { value: "user", label: "User", icon: Users, color: "bg-gray-100 text-gray-600 border-gray-200", desc: "Basic read-only access" },
+  { value: "admin",   label: "Admin",   icon: Shield,    color: "bg-blue-50 text-blue-700 border-blue-200",   desc: "Full access to all features" },
+  { value: "support", label: "Support", icon: Headphones,color: "bg-green-50 text-green-700 border-green-200", desc: "View logs, limited actions" },
+  { value: "agent",   label: "Agent",   icon: UserCheck, color: "bg-orange-50 text-orange-700 border-orange-200", desc: "Campaign & messaging only" },
+  { value: "user",    label: "User",    icon: Users,     color: "bg-gray-100 text-gray-600 border-gray-200",   desc: "Basic read-only access" },
 ];
 
 export default function UserManagement() {
@@ -43,6 +45,7 @@ export default function UserManagement() {
 
   const inviteMut = useMutation({
     mutationFn: async ({ email, role }) => {
+      // Base44 system role: admin or user. Custom sub-roles stored in User.role field after invite.
       await base44.users.inviteUser(email, role === 'admin' ? 'admin' : 'user');
     },
     onSuccess: () => {
@@ -51,17 +54,20 @@ export default function UserManagement() {
       setInviteEmail('');
       toast.success("User invited — invitation email sent");
     },
+    onError: (e) => toast.error("Invite failed: " + e.message),
   });
 
   const updateRoleMut = useMutation({
     mutationFn: async ({ id, role }) => {
-      return base44.entities.User.update(id, { role: role === 'admin' ? 'admin' : 'user' });
+      // Save the exact role value (admin, support, agent, user) directly
+      return base44.entities.User.update(id, { role });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['users'] });
       setEditDialogOpen(false);
       toast.success("User role updated");
     },
+    onError: (e) => toast.error("Update failed: " + e.message),
   });
 
   const sendResetMut = useMutation({
@@ -79,7 +85,7 @@ export default function UserManagement() {
 
   const isSuperAdmin = currentUser?.role === 'admin';
 
-  const countByRole = (role) => users.filter(u => u.role === role || (role === 'support' && u.role === 'user')).length;
+  const countByRole = (role) => users.filter(u => u.role === role).length;
 
   const getRoleInfo = (role) => ROLES.find(r => r.value === role) || ROLES[3];
 
@@ -101,7 +107,8 @@ export default function UserManagement() {
               <div className={`p-2.5 rounded-xl border ${role.color}`}><role.icon className="w-5 h-5" /></div>
               <div>
                 <p className="text-sm text-muted-foreground">{role.label}s</p>
-                <p className="text-2xl font-bold">{users.filter(u => u.role === (role.value === 'admin' ? 'admin' : 'user') || (role.value === 'user' && u.role === 'user')).length}</p>
+                <p className="text-2xl font-bold">{countByRole(role.value)}</p>
+                <p className="text-xs text-muted-foreground">{role.desc}</p>
               </div>
             </div>
           </Card>
@@ -133,7 +140,7 @@ export default function UserManagement() {
                     <TableCell>
                       <Badge variant="outline" className={roleInfo.color}>
                         <roleInfo.icon className="w-3 h-3 mr-1" />
-                        {u.role === 'admin' ? 'Admin' : u.role === 'user' ? 'Support/Agent' : u.role}
+                        {roleInfo.label}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{new Date(u.created_date).toLocaleDateString()}</TableCell>
@@ -141,7 +148,7 @@ export default function UserManagement() {
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" title="Edit Role"
-                            onClick={() => { setEditingUser(u); setEditRole(u.role === 'admin' ? 'admin' : 'support'); setEditDialogOpen(true); }}>
+                            onClick={() => { setEditingUser(u); setEditRole(u.role || 'user'); setEditDialogOpen(true); }}>
                             <Pencil className="w-4 h-4" />
                           </Button>
                           <Button variant="ghost" size="icon" title="Send Password Reset Email"
