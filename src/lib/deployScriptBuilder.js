@@ -449,8 +449,12 @@ if (fs.existsSync(WEBROOT)) app.use(express.static(WEBROOT));
 const pool = mysql.createPool({
   host: process.env.MYSQL_HOST||'localhost', port: parseInt(process.env.MYSQL_PORT)||3306,
   database: process.env.MYSQL_DB, user: process.env.MYSQL_USER, password: process.env.MYSQL_PASS,
-  connectionLimit: 30, waitForConnections: true
+  connectionLimit: 30, waitForConnections: true, queueLimit: 0,
+  enableKeepAlive: true, keepAliveInitialDelay: 0
 });
+
+// Verify DB on startup
+pool.getConnection().then(c => { console.log('MariaDB pool: connected to '+process.env.MYSQL_DB); c.release(); }).catch(e => { console.error('MariaDB pool ERROR:', e.message); });
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.API_TOKEN || 'changeme';
 const uuid = () => crypto.randomUUID();
@@ -859,9 +863,6 @@ export function buildDeployScript(c) {
     'WEBROOT="/var/www/html"',
     'API_DIR="/opt/net2app-api"',
     'BRANCH="main"',
-    `VITE_APP_ID="${c.appId}"`,
-    `VITE_APP_BASE_URL="${c.appBaseUrl}"`,
-    `VITE_FUNCTIONS_VERSION="${c.funcVersion}"`,
     '',
     'echo ""',
     'echo "════════════════════════════════════════════════════════════"',
@@ -1033,7 +1034,7 @@ export function buildDeployScript(c) {
     '# express@4 pinned — avoids path-to-regexp crash in express v5',
     'npm install express@4 mysql2 cors dotenv jsonwebtoken node-cron 2>&1 | tail -3',
     '',
-    'cat > $API_DIR/.env << ENVEOF',
+    `cat > $API_DIR/.env << 'ENVEOF'`,
     'PORT=5000',
     'MYSQL_HOST=localhost',
     'MYSQL_PORT=3306',
@@ -1061,9 +1062,12 @@ export function buildDeployScript(c) {
     'PM2_STARTUP=$(env PATH=$PATH:/usr/bin pm2 startup systemd -u root --hp /root 2>&1 | grep "sudo")',
     '[ -n "$PM2_STARTUP" ] && eval "$PM2_STARTUP" || true',
     'systemctl enable pm2-root 2>/dev/null || true',
-    'info "Waiting 6s for API..."',
-    'sleep 6',
-    'curl -s http://127.0.0.1:5000/health | grep -q \'"ok":true\' && ok "API Server: RUNNING on :5000 (22 tables)" || { sleep 5; curl -s http://127.0.0.1:5000/health | grep -q \'"ok":true\' && ok "API: RUNNING" || fail "API FAILED — pm2 logs net2app-api"; }',
+    'info "Waiting 8s for API + DB pool..."',
+    'sleep 8',
+    'HEALTH=$(curl -s http://127.0.0.1:5000/health)',
+    'echo "Health response: $HEALTH"',
+    'echo "$HEALTH" | grep -q \'"ok":true\' && ok "API Server: RUNNING on :5000" || { pm2 logs net2app-api --lines 20 --nostream; sleep 5; curl -s http://127.0.0.1:5000/health | grep -q \'"ok":true\' && ok "API: RUNNING" || fail "API FAILED — check: pm2 logs net2app-api"; }',
+    'echo "$HEALTH" | grep -q \'"db":"connected"\' && ok "MariaDB: CONNECTED via pool" || fail "MariaDB NOT connected — check .env credentials"',
     '',
 
     'header "STEP 10: Clone + Git Hard-Reset (no merge conflicts) + Build"',
@@ -1078,10 +1082,12 @@ export function buildDeployScript(c) {
     '  ok "Repository cloned"',
     'fi',
     'cd $DEPLOY_DIR',
-    'cat > $DEPLOY_DIR/.env << VITEEOF',
-    'VITE_BASE44_APP_ID=${VITE_APP_ID}',
-    'VITE_BASE44_APP_BASE_URL=${VITE_APP_BASE_URL}',
-    'VITE_BASE44_FUNCTIONS_VERSION=${VITE_FUNCTIONS_VERSION}',
+    `cat > $DEPLOY_DIR/.env << 'VITEEOF'`,
+    `VITE_BASE44_APP_ID=${c.appId}`,
+    `VITE_BASE44_APP_BASE_URL=${c.appBaseUrl}`,
+    `VITE_BASE44_FUNCTIONS_VERSION=${c.funcVersion}`,
+    `SERVER_API_URL=http://127.0.0.1:5000`,
+    `SERVER_API_TOKEN=${c.apiToken}`,
     'VITEEOF',
     '# --include=dev ensures Vite + all build tools are installed',
     'npm install --include=dev 2>&1 | tail -5',
@@ -1205,10 +1211,14 @@ export function buildDeployScript(c) {
     'echo "║  LOGIN:  admin@net2app.local / Admin@2025!                   ║"',
     'echo "║  TOKEN:  POST /api/auth/login → JWT (24h)                    ║"',
     'echo "╠═══════════════════════════════════════════════════════════════╣"',
-    `echo "║  SERVER_API_URL   = http://$SERVER_IP:5000                   "`,
-    `echo "║  SERVER_API_TOKEN = ${c.apiToken}                            "`,
-    `echo "║  KANNEL_ADMIN_URL = http://$SERVER_IP:13000                  "`,
-    `echo "║  KANNEL_ADMIN_PASS= ${c.kannelPass}                          "`,
+    `echo "║  ⚙ Base44 Secrets to set in Dashboard → Code → Secrets:     ║"`,
+    `echo "║  SERVER_API_URL    = http://$SERVER_IP:5000                  "`,
+    `echo "║  SERVER_API_TOKEN  = ${c.apiToken}                           "`,
+    `echo "║  KANNEL_ADMIN_URL  = http://$SERVER_IP:13000                 "`,
+    `echo "║  KANNEL_ADMIN_PASS = ${c.kannelPass}                         "`,
+    'echo "╠═══════════════════════════════════════════════════════════════╣"',
+    'echo "║  DB: MYSQL_DB='+"'"+`${c.dbName}`+"'"+' MYSQL_USER='+"'"+`${c.dbAppUser}`+"'"+'                 ║"',
+    'echo "║  API .env: $API_DIR/.env (chmod 600)                         ║"',
     'echo "╠═══════════════════════════════════════════════════════════════╣"',
     'echo "║  TABLES: users, tenants, clients, suppliers, routes,         ║"',
     'echo "║  routing_rules, rates, mcc_mnc, sms_log, sms_log_archive,    ║"',
