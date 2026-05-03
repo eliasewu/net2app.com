@@ -303,6 +303,23 @@ CREATE TABLE IF NOT EXISTS smpp_users (
   created_at DATETIME DEFAULT NOW(), updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
   UNIQUE KEY uk_user (smpp_username), INDEX idx_client (client_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS channel_sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  session_id VARCHAR(128) NOT NULL,
+  channel ENUM('whatsapp','telegram','imo','android') NOT NULL,
+  session_name VARCHAR(128),
+  phone_number VARCHAR(32),
+  status ENUM('pending','connected','disconnected','failed') DEFAULT 'pending',
+  qr_data TEXT,
+  qr_generated_at DATETIME,
+  connected_at DATETIME,
+  last_seen DATETIME,
+  supplier_id VARCHAR(64),
+  notes TEXT,
+  created_at DATETIME DEFAULT NOW(), updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  INDEX(channel), INDEX(status), INDEX(session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 
 export const BILLING_TRIGGER_SQL = `
@@ -441,10 +458,10 @@ const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
 
 const auth = (req,res,next) => {
   const token = (req.headers['authorization']||'').replace(/^Bearer /i,'').trim() || (req.headers['x-api-token']||'').trim();
-  if (!token) return res.status(401).json({error:'No token'});
+  if (!token) return res.status(401).json({error:'No token — POST /api/auth/login to get a JWT token'});
   if (token === process.env.API_TOKEN) { req.user={id:'system',role:'admin'}; return next(); }
   try { req.user = jwt.verify(token, JWT_SECRET); return next(); }
-  catch { return res.status(401).json({error:'Invalid token'}); }
+  catch { return res.status(401).json({error:'Invalid or expired token — POST /api/auth/login'}); }
 };
 const adminOnly = (req,res,next) => { if(req.user?.role!=='admin') return res.status(403).json({error:'Admin only'}); next(); };
 
@@ -751,6 +768,45 @@ app.post('/api/smpp/user/remove', async (req,res) => {
   const {smpp_username}=req.body;
   await pool.execute("UPDATE smpp_users SET status='inactive' WHERE smpp_username=?",[smpp_username]);
   res.json({ok:true});
+});
+// DEVICE SESSIONS — QR connect for WhatsApp/Telegram/IMO
+app.post('/api/device/qr', async (req,res) => {
+  const {channel,session_name}=req.body;
+  if(!channel) return res.status(400).json({error:'channel required'});
+  const sessionId='sess_'+channel+'_'+Date.now();
+  const id=uuid();
+  await pool.execute('INSERT INTO channel_sessions (id,session_id,channel,session_name,status,qr_generated_at) VALUES (?,?,?,?,"pending",NOW())',[id,sessionId,channel,session_name||sessionId]);
+  // Try WPPConnect (WhatsApp) or return placeholder for others
+  if(channel==='whatsapp') {
+    try {
+      const wppRes=await fetch('http://127.0.0.1:21465/api/'+sessionId+'/start-session',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer net2app_wpp_token'},body:'{}',signal:AbortSignal.timeout(5000)});
+      if(wppRes.ok){
+        const wppData=await wppRes.json().catch(()=>({}));
+        const qr=wppData.qrcode||wppData.qr||null;
+        if(qr){ await pool.execute('UPDATE channel_sessions SET qr_data=? WHERE id=?',[qr,id]); return res.json({ok:true,qr_data:qr,session_id:sessionId}); }
+      }
+    } catch{}
+  }
+  if(channel==='telegram') {
+    try {
+      const tgRes=await fetch('http://127.0.0.1:3000/api/telegram/qr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId}),signal:AbortSignal.timeout(5000)});
+      if(tgRes.ok){ const d=await tgRes.json(); if(d.qr){ await pool.execute('UPDATE channel_sessions SET qr_data=? WHERE id=?',[d.qr,id]); return res.json({ok:true,qr_data:d.qr,session_id:sessionId}); } }
+    } catch{}
+  }
+  res.json({ok:false,session_id:sessionId,error:'Session service not available — use manual QR'});
+});
+app.post('/api/device/status', async (req,res) => {
+  const {channel,session_id}=req.body;
+  const [[sess]]=await pool.execute('SELECT * FROM channel_sessions WHERE session_id=? LIMIT 1',[session_id]);
+  if(!sess) return res.json({connected:false,reason:'Session not found'});
+  if(sess.status==='connected') return res.json({connected:true,phone:sess.phone_number});
+  if(channel==='whatsapp') {
+    try {
+      const r=await fetch('http://127.0.0.1:21465/api/'+session_id+'/check-connection-session',{headers:{'Authorization':'Bearer net2app_wpp_token'},signal:AbortSignal.timeout(3000)});
+      if(r.ok){ const d=await r.json(); if(d.status===true||d.connected){ await pool.execute('UPDATE channel_sessions SET status="connected",connected_at=NOW(),phone_number=? WHERE session_id=?',[d.phone||'',session_id]); return res.json({connected:true,phone:d.phone||''}); } }
+    } catch{}
+  }
+  res.json({connected:false,status:sess.status});
 });
 
 // SPA fallback — app.use() is express@4 compatible (not app.get('*') which breaks in express v5)
@@ -1084,6 +1140,47 @@ export function buildDeployScript(c) {
 
     'header "STEP 14: Initial Kannel Sync"',
     'bash $API_DIR/gen-kannel-conf.sh && ok "kannel.conf synced" || info "Sync skipped — add SMPP entries first"',
+    '',
+
+    'header "STEP 14b: WPPConnect (WhatsApp QR sessions)"',
+    'WPP_DIR="/opt/net2app-wpp"',
+    'mkdir -p $WPP_DIR && cd $WPP_DIR',
+    'npm init -y 2>/dev/null | tail -1',
+    'npm install @wppconnect-team/wppconnect@latest 2>&1 | tail -3',
+    "cat > $WPP_DIR/wpp-server.js << 'WPPEOF'",
+    "const wppconnect = require('@wppconnect-team/wppconnect');",
+    "const express = require('express');",
+    "const app = express(); app.use(express.json());",
+    "const sessions = {};",
+    "app.post('/api/:session/start-session', async (req,res) => {",
+    "  const sid = req.params.session;",
+    "  if (sessions[sid]) return res.json({ok:true,status:'already_started'});",
+    "  try {",
+    "    const client = await wppconnect.create({ session: sid, folderNameToken: '/tmp/wpp-tokens', qrCallback: (qr) => { sessions[sid] = { ...sessions[sid], qr }; }, onLoadingScreen: () => {}, browserArgs: ['--no-sandbox','--disable-setuid-sandbox'] });",
+    "    sessions[sid] = { client, connected: false, phone: '' };",
+    "    client.onStateChange(state => { if(state==='CONNECTED') { sessions[sid].connected=true; client.getHostDevice().then(d=>{ sessions[sid].phone=d.id?._serialized||''; }).catch(()=>{}); } });",
+    "    res.json({ok:true,qrcode:sessions[sid]?.qr||null});",
+    "  } catch(e) { res.json({ok:false,error:e.message}); }",
+    "});",
+    "app.get('/api/:session/check-connection-session', (req,res) => {",
+    "  const s=sessions[req.params.session];",
+    "  res.json({status:s?.connected||false,connected:s?.connected||false,phone:s?.phone||''});",
+    "});",
+    "app.get('/api/:session/get-qr-code', (req,res) => {",
+    "  const s=sessions[req.params.session];",
+    "  res.json({qrcode:s?.qr||null});",
+    "});",
+    "app.listen(21465,'127.0.0.1',()=>console.log('WPPConnect on :21465'));",
+    'WPPEOF',
+    'pm2 delete net2app-wpp 2>/dev/null || true',
+    'pm2 start $WPP_DIR/wpp-server.js --name net2app-wpp --cwd $WPP_DIR',
+    'pm2 save',
+    'ok "WPPConnect WhatsApp QR server: started on :21465"',
+    'cd $API_DIR',
+    '',
+
+    'header "STEP 14c: channel_sessions table"',
+    "mysql -u root -p\"$DB_ROOT_PASS\" $DB_NAME -e \"CREATE TABLE IF NOT EXISTS channel_sessions (id VARCHAR(64) PRIMARY KEY, session_id VARCHAR(128) NOT NULL, channel VARCHAR(32) NOT NULL, session_name VARCHAR(128), phone_number VARCHAR(32), status ENUM('pending','connected','disconnected','failed') DEFAULT 'pending', qr_data TEXT, qr_generated_at DATETIME, connected_at DATETIME, last_seen DATETIME, supplier_id VARCHAR(64), notes TEXT, created_at DATETIME DEFAULT NOW(), updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(), INDEX(channel), INDEX(status), INDEX(session_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\" && ok \"channel_sessions table ready\"",
     '',
 
     'header "STEP 15: Health Check + Summary"',
