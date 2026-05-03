@@ -678,7 +678,7 @@ export function buildDeployScript(c) {
     'header "STEP 3: MariaDB — Database + User"',
     'systemctl enable mariadb && systemctl start mariadb && sleep 2',
     `mysql -u root -p"$DB_ROOT_PASS" -e "SELECT 1" 2>/dev/null || mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS'; FLUSH PRIVILEGES;"`,
-    'mysql -u root -p"$DB_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS `$DB_NAME` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; DROP USER IF EXISTS \'$DB_APP_USER\'@\'localhost\'; CREATE USER \'$DB_APP_USER\'@\'localhost\' IDENTIFIED BY \'$DB_APP_PASS\'; GRANT ALL PRIVILEGES ON `$DB_NAME`.* TO \'$DB_APP_USER\'@\'localhost\'; FLUSH PRIVILEGES;"',
+    "mysql -u root -p\"$DB_ROOT_PASS\" -e \"CREATE DATABASE IF NOT EXISTS \`\$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; DROP USER IF EXISTS '\$DB_APP_USER'@'localhost'; CREATE USER '\$DB_APP_USER'@'localhost' IDENTIFIED BY '\$DB_APP_PASS'; GRANT ALL PRIVILEGES ON \`\$DB_NAME\`.* TO '\$DB_APP_USER'@'localhost'; FLUSH PRIVILEGES;\"",
     'ok "MariaDB: database + user ready"',
     '',
 

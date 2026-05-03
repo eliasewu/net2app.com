@@ -43,7 +43,7 @@ import AlertRules from './pages/AlertRules';
 import RoutingRules from './pages/RoutingRules';
 import RoutingAnalytics from './pages/RoutingAnalytics';
 import GithubReleases from './pages/GithubReleases';
-import FullDeployScript from './pages/FullDeployScript';
+import FullDeployScript from './pages/FullDeployScript.jsx';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
