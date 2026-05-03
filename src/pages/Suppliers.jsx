@@ -50,6 +50,7 @@ const emptySupplier = {
   http_url: "", http_method: "POST", http_params: "", dlr_url: "",
   api_key: "", api_secret: "", account_sid: "", auth_token: "",
   sip_server: "", sip_port: 5060, sip_username: "", sip_password: "",
+  billing_type: "submit",
   status: "active", priority: 1, tps_limit: 100, notes: ""
 };
 
@@ -192,6 +193,7 @@ export default function Suppliers() {
                         <TableHead>Name</TableHead>
                         <TableHead>Provider</TableHead>
                         <TableHead>Connection</TableHead>
+                        <TableHead>Billing</TableHead>
                         <TableHead>Priority</TableHead>
                         <TableHead>TPS</TableHead>
                         <TableHead>Status</TableHead>
@@ -207,6 +209,13 @@ export default function Suppliers() {
                           </TableCell>
                           <TableCell>
                             <span className="text-xs bg-muted px-2 py-1 rounded">{s.connection_type}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium capitalize ${
+                              s.billing_type === 'delivery' ? 'bg-green-50 text-green-700 border-green-200' :
+                              s.billing_type === 'send' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                              'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}>{s.billing_type || 'submit'}</span>
                           </TableCell>
                           <TableCell>{s.priority}</TableCell>
                           <TableCell>{s.tps_limit}</TableCell>
@@ -346,6 +355,31 @@ export default function Suppliers() {
                 <p className="text-xs text-green-700">No authentication required — calls will pass directly to SIP server via IP:Port.</p>
               </div>
             )}
+
+            {/* Supplier Billing Configuration */}
+            <div className="col-span-2 space-y-3 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+              <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider">💳 Supplier Billing — When do we get charged?</p>
+              <div className="space-y-2">
+                <Label>Supplier Billing Type</Label>
+                <Select value={form.billing_type || "submit"} onValueChange={v => set('billing_type', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="send">Send Billing — supplier charges us on gateway send</SelectItem>
+                    <SelectItem value="submit">Submit Billing — supplier charges on SMSC accept (Message ID)</SelectItem>
+                    <SelectItem value="delivery">Delivery Billing — supplier only charges on DELIVRD DLR</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className={`text-xs px-3 py-2 rounded-lg border ${
+                  form.billing_type === 'send' ? 'bg-orange-50 border-orange-200 text-orange-700' :
+                  form.billing_type === 'delivery' ? 'bg-green-50 border-green-200 text-green-700' :
+                  'bg-blue-50 border-blue-200 text-blue-700'
+                }`}>
+                  {form.billing_type === 'send' && '⚠️ We are charged by this supplier as soon as the message is sent — even if it fails to deliver.'}
+                  {form.billing_type === 'submit' && '✅ We are charged only when the SMSC returns a Message ID (successful submit). Submit failures are not billed.'}
+                  {(!form.billing_type || form.billing_type === 'delivery') && '🟢 We are charged only when the supplier confirms DELIVRD. Undelivered messages cost us nothing.'}
+                </div>
+              </div>
+            </div>
 
             {/* OTP Unicode Preset */}
             <div className="space-y-3 p-3 bg-orange-50 rounded-lg border border-orange-100">

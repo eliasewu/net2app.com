@@ -136,8 +136,8 @@
         "submit",
         "delivery"
       ],
-      "default": "delivery",
-      "description": "For device/android suppliers: billing_type is always delivery (DLR-based)"
+      "default": "submit",
+      "description": "When we get charged by this supplier: send = on gateway send, submit = on SMSC accept (Message ID), delivery = on DELIVRD DLR only"
     },
     "total_sent": {
       "type": "number",
@@ -188,5 +188,41 @@
   },
   "required": [
     "name"
-  ]
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "id": "{{user.data.supplier_id}}"
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "id": "{{user.data.supplier_id}}"
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
 }

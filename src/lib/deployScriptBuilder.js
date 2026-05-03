@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
   android_webhook_url TEXT, android_device_id VARCHAR(128), android_api_token VARCHAR(256),
   allowed_prefixes TEXT, allowed_mcc_mnc TEXT,
   reroute_on_fail TINYINT(1) DEFAULT 1, reroute_supplier_id VARCHAR(64),
+  billing_type ENUM('send','submit','delivery') DEFAULT 'submit',
   status ENUM('active','inactive','blocked') DEFAULT 'active',
   priority INT DEFAULT 1, tps_limit INT DEFAULT 100,
   total_sent BIGINT DEFAULT 0, total_delivered BIGINT DEFAULT 0,
@@ -308,22 +309,46 @@ DELIMITER $$
 CREATE TRIGGER trg_sms_billing_update
 AFTER UPDATE ON sms_log FOR EACH ROW
 trig_block: BEGIN
-  DECLARE v_billing_type VARCHAR(16);
+  DECLARE v_client_billing VARCHAR(16);
+  DECLARE v_supplier_billing VARCHAR(16);
   DECLARE v_force_dlr TINYINT(1);
   DECLARE v_do_client TINYINT(1) DEFAULT 0;
+  DECLARE v_do_supplier TINYINT(1) DEFAULT 0;
+
   IF NEW.status = OLD.status THEN LEAVE trig_block; END IF;
+
+  -- Load client billing settings
   SELECT IFNULL(billing_type,'submit'), IFNULL(force_dlr,0)
-    INTO v_billing_type, v_force_dlr FROM clients WHERE id=NEW.client_id LIMIT 1;
-  IF v_billing_type='send' THEN
+    INTO v_client_billing, v_force_dlr FROM clients WHERE id=NEW.client_id LIMIT 1;
+
+  -- Load supplier billing settings
+  SELECT IFNULL(billing_type,'submit')
+    INTO v_supplier_billing FROM suppliers WHERE id=NEW.supplier_id LIMIT 1;
+
+  -- CLIENT billing logic
+  IF v_client_billing='send' THEN
     IF NEW.status NOT IN ('blocked','pending') THEN SET v_do_client=1; END IF;
-  ELSEIF v_billing_type='submit' THEN
+  ELSEIF v_client_billing='submit' THEN
     IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
-  ELSEIF v_billing_type='delivery' THEN
+  ELSEIF v_client_billing='delivery' THEN
     IF NEW.status='delivered' THEN SET v_do_client=1; END IF;
     IF v_force_dlr=1 AND NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
   ELSE
     IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
   END IF;
+
+  -- SUPPLIER billing logic (what we owe the supplier)
+  IF v_supplier_billing='send' THEN
+    IF NEW.status NOT IN ('blocked','pending') THEN SET v_do_supplier=1; END IF;
+  ELSEIF v_supplier_billing='submit' THEN
+    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_supplier=1; END IF;
+  ELSEIF v_supplier_billing='delivery' THEN
+    IF NEW.status='delivered' THEN SET v_do_supplier=1; END IF;
+  ELSE
+    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_supplier=1; END IF;
+  END IF;
+
+  -- Apply client charge (deduct from client balance)
   IF v_do_client=1 THEN
     UPDATE clients SET balance=balance-NEW.sell_rate WHERE id=NEW.client_id;
     INSERT INTO billing_summary (id,tenant_id,client_id,period,total_sms,total_cost,total_revenue,margin)
@@ -333,6 +358,15 @@ trig_block: BEGIN
       total_sms=total_sms+1, total_cost=total_cost+NEW.cost,
       total_revenue=total_revenue+NEW.sell_rate, margin=margin+(NEW.sell_rate-NEW.cost), updated_at=NOW();
   END IF;
+
+  -- Apply supplier cost tracking (record cost when supplier billing condition met)
+  -- v_do_supplier gates when supplier actually bills us (cost column)
+  IF v_do_supplier=0 THEN
+    -- If supplier hasn't billed yet, zero out the cost in summary for now
+    UPDATE billing_summary SET total_cost=total_cost-NEW.cost
+      WHERE id=CONCAT(NEW.client_id,'_',DATE_FORMAT(DATE(NEW.submit_time),'%Y%m%d'));
+  END IF;
+
 END$$
 DELIMITER ;
 `;
@@ -458,14 +492,14 @@ app.get('/api/suppliers', async (req,res) => { const [r]=await pool.execute('SEL
 app.post('/api/suppliers', async (req,res) => {
   const d=req.body; if(!d.name) return res.status(400).json({error:'name required'});
   const id=d.id||uuid();
-  await pool.execute('INSERT INTO suppliers (id,tenant_id,name,category,provider_type,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,api_key,api_secret,dlr_url,status,priority,tps_limit,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),status=VALUES(status),updated_at=NOW()',
-    [id,d.tenant_id||'default',d.name,d.category||'sms',d.provider_type||'',d.connection_type||'HTTP',d.smpp_ip||'',d.smpp_port||2775,d.smpp_username||'',d.smpp_password||'',d.http_url||'',d.http_method||'POST',d.http_params||'',d.api_key||'',d.api_secret||'',d.dlr_url||'',d.status||'active',d.priority||1,d.tps_limit||100,d.notes||'']);
+  await pool.execute('INSERT INTO suppliers (id,tenant_id,name,category,provider_type,connection_type,smpp_ip,smpp_port,smpp_username,smpp_password,http_url,http_method,http_params,api_key,api_secret,dlr_url,billing_type,status,priority,tps_limit,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),billing_type=VALUES(billing_type),status=VALUES(status),updated_at=NOW()',
+    [id,d.tenant_id||'default',d.name,d.category||'sms',d.provider_type||'',d.connection_type||'HTTP',d.smpp_ip||'',d.smpp_port||2775,d.smpp_username||'',d.smpp_password||'',d.http_url||'',d.http_method||'POST',d.http_params||'',d.api_key||'',d.api_secret||'',d.dlr_url||'',d.billing_type||'submit',d.status||'active',d.priority||1,d.tps_limit||100,d.notes||'']);
   res.json({ok:true,id});
 });
 app.put('/api/suppliers/:id', async (req,res) => {
   const d=req.body;
-  await pool.execute('UPDATE suppliers SET name=?,category=?,connection_type=?,smpp_ip=?,smpp_port=?,smpp_username=?,smpp_password=?,http_url=?,api_key=?,api_secret=?,dlr_url=?,status=?,priority=?,tps_limit=?,notes=?,updated_at=NOW() WHERE id=?',
-    [d.name,d.category||'sms',d.connection_type||'HTTP',d.smpp_ip||'',d.smpp_port||2775,d.smpp_username||'',d.smpp_password||'',d.http_url||'',d.api_key||'',d.api_secret||'',d.dlr_url||'',d.status||'active',d.priority||1,d.tps_limit||100,d.notes||'',req.params.id]);
+  await pool.execute('UPDATE suppliers SET name=?,category=?,connection_type=?,smpp_ip=?,smpp_port=?,smpp_username=?,smpp_password=?,http_url=?,api_key=?,api_secret=?,dlr_url=?,billing_type=?,status=?,priority=?,tps_limit=?,notes=?,updated_at=NOW() WHERE id=?',
+    [d.name,d.category||'sms',d.connection_type||'HTTP',d.smpp_ip||'',d.smpp_port||2775,d.smpp_username||'',d.smpp_password||'',d.http_url||'',d.api_key||'',d.api_secret||'',d.dlr_url||'',d.billing_type||'submit',d.status||'active',d.priority||1,d.tps_limit||100,d.notes||'',req.params.id]);
   res.json({ok:true});
 });
 app.delete('/api/suppliers/:id', async (req,res) => { await pool.execute('DELETE FROM suppliers WHERE id=?',[req.params.id]); res.json({ok:true}); });
@@ -845,7 +879,13 @@ export function buildDeployScript(c) {
     '',
     'pm2 delete net2app-api 2>/dev/null || true',
     'pm2 start $API_DIR/server.js --name net2app-api --cwd $API_DIR',
-    'pm2 save && pm2 startup systemd -u root --hp /root 2>/dev/null || true',
+    '# Ensure PM2 starts on boot',
+    'pm2 save',
+    'env PATH=$PATH:/usr/bin pm2 startup systemd -u root --hp /root 2>&1 | tail -3',
+    '# Run the generated startup command if it outputs one',
+    'PM2_STARTUP=$(env PATH=$PATH:/usr/bin pm2 startup systemd -u root --hp /root 2>&1 | grep "sudo")',
+    '[ -n "$PM2_STARTUP" ] && eval "$PM2_STARTUP" || true',
+    'systemctl enable pm2-root 2>/dev/null || true',
     'info "Waiting 6s for API..."',
     'sleep 6',
     'curl -s http://127.0.0.1:5000/health | grep -q \'"ok":true\' && ok "API Server: RUNNING on :5000 (22 tables)" || { sleep 5; curl -s http://127.0.0.1:5000/health | grep -q \'"ok":true\' && ok "API: RUNNING" || fail "API FAILED — pm2 logs net2app-api"; }',
