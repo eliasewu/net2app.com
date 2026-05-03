@@ -135,6 +135,8 @@ CREATE TABLE IF NOT EXISTS sms_log (
   parts TINYINT DEFAULT 1, cost DECIMAL(12,6) DEFAULT 0, sell_rate DECIMAL(12,6) DEFAULT 0,
   sms_type ENUM('transactional','promotional','otp','voice_otp') DEFAULT 'transactional',
   submit_time DATETIME DEFAULT NOW(), delivery_time DATETIME,
+  client_billed TINYINT(1) DEFAULT 0,
+  supplier_billed TINYINT(1) DEFAULT 0,
   INDEX(tenant_id), INDEX(destination), INDEX(client_id), INDEX(status), INDEX(submit_time), INDEX(message_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -304,8 +306,48 @@ CREATE TABLE IF NOT EXISTS smpp_users (
 `;
 
 export const BILLING_TRIGGER_SQL = `
+DROP TRIGGER IF EXISTS trg_sms_billing_insert;
 DROP TRIGGER IF EXISTS trg_sms_billing_update;
 DELIMITER $$
+
+-- ── INSERT trigger: handles 'send' billing (fires immediately on log creation)
+CREATE TRIGGER trg_sms_billing_insert
+AFTER INSERT ON sms_log FOR EACH ROW
+trig_block: BEGIN
+  DECLARE v_client_billing VARCHAR(16);
+  DECLARE v_supplier_billing VARCHAR(16);
+  DECLARE v_force_dlr TINYINT(1);
+  DECLARE v_do_client TINYINT(1) DEFAULT 0;
+  DECLARE v_do_supplier TINYINT(1) DEFAULT 0;
+
+  SELECT IFNULL(billing_type,'submit'), IFNULL(force_dlr,0)
+    INTO v_client_billing, v_force_dlr FROM clients WHERE id=NEW.client_id LIMIT 1;
+  SELECT IFNULL(billing_type,'submit')
+    INTO v_supplier_billing FROM suppliers WHERE id=NEW.supplier_id LIMIT 1;
+
+  -- CLIENT: 'send' billing fires on insert (non-blocked)
+  IF v_client_billing='send' AND NEW.status NOT IN ('blocked') THEN SET v_do_client=1; END IF;
+
+  -- SUPPLIER: 'send' billing fires on insert (non-blocked)
+  IF v_supplier_billing='send' AND NEW.status NOT IN ('blocked') THEN SET v_do_supplier=1; END IF;
+
+  IF v_do_client=1 THEN
+    UPDATE clients SET balance=balance-NEW.sell_rate WHERE id=NEW.client_id;
+    INSERT INTO billing_summary (id,tenant_id,client_id,period,total_sms,total_cost,total_revenue,margin)
+    VALUES (CONCAT(NEW.client_id,'_',DATE_FORMAT(IFNULL(DATE(NEW.submit_time),CURDATE()),'%Y%m%d')),
+      IFNULL(NEW.tenant_id,'default'), NEW.client_id, IFNULL(DATE(NEW.submit_time),CURDATE()),
+      1, IF(v_do_supplier=1,NEW.cost,0), NEW.sell_rate, NEW.sell_rate-IF(v_do_supplier=1,NEW.cost,0))
+    ON DUPLICATE KEY UPDATE
+      total_sms=total_sms+1,
+      total_cost=total_cost+IF(v_do_supplier=1,NEW.cost,0),
+      total_revenue=total_revenue+NEW.sell_rate,
+      margin=margin+(NEW.sell_rate-IF(v_do_supplier=1,NEW.cost,0)),
+      updated_at=NOW();
+  END IF;
+
+END$$
+
+-- ── UPDATE trigger: handles 'submit' and 'delivery' billing on status change
 CREATE TRIGGER trg_sms_billing_update
 AFTER UPDATE ON sms_log FOR EACH ROW
 trig_block: BEGIN
@@ -315,56 +357,50 @@ trig_block: BEGIN
   DECLARE v_do_client TINYINT(1) DEFAULT 0;
   DECLARE v_do_supplier TINYINT(1) DEFAULT 0;
 
+  -- Skip if status unchanged
   IF NEW.status = OLD.status THEN LEAVE trig_block; END IF;
 
-  -- Load client billing settings
   SELECT IFNULL(billing_type,'submit'), IFNULL(force_dlr,0)
     INTO v_client_billing, v_force_dlr FROM clients WHERE id=NEW.client_id LIMIT 1;
-
-  -- Load supplier billing settings
   SELECT IFNULL(billing_type,'submit')
     INTO v_supplier_billing FROM suppliers WHERE id=NEW.supplier_id LIMIT 1;
 
-  -- CLIENT billing logic
-  IF v_client_billing='send' THEN
-    IF NEW.status NOT IN ('blocked','pending') THEN SET v_do_client=1; END IF;
-  ELSEIF v_client_billing='submit' THEN
-    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
+  -- Skip 'send' billing — already handled by insert trigger
+  IF v_client_billing='send' THEN LEAVE trig_block; END IF;
+
+  -- CLIENT billing logic (submit + delivery only)
+  IF v_client_billing='submit' THEN
+    IF NEW.status NOT IN ('failed','rejected','blocked','pending') AND OLD.status IN ('pending','sent') THEN
+      SET v_do_client=1;
+    END IF;
   ELSEIF v_client_billing='delivery' THEN
     IF NEW.status='delivered' THEN SET v_do_client=1; END IF;
-    IF v_force_dlr=1 AND NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
-  ELSE
-    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_client=1; END IF;
+    IF v_force_dlr=1 AND NEW.status NOT IN ('failed','rejected','blocked','pending') AND OLD.status IN ('pending','sent') THEN
+      SET v_do_client=1;
+    END IF;
   END IF;
 
-  -- SUPPLIER billing logic (what we owe the supplier)
-  IF v_supplier_billing='send' THEN
-    IF NEW.status NOT IN ('blocked','pending') THEN SET v_do_supplier=1; END IF;
-  ELSEIF v_supplier_billing='submit' THEN
-    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_supplier=1; END IF;
+  -- SUPPLIER billing logic (skip 'send' — handled by insert trigger)
+  IF v_supplier_billing='submit' THEN
+    IF NEW.status NOT IN ('failed','rejected','blocked','pending') AND OLD.status IN ('pending','sent') THEN
+      SET v_do_supplier=1;
+    END IF;
   ELSEIF v_supplier_billing='delivery' THEN
     IF NEW.status='delivered' THEN SET v_do_supplier=1; END IF;
-  ELSE
-    IF NEW.status NOT IN ('failed','rejected','blocked','pending') THEN SET v_do_supplier=1; END IF;
   END IF;
 
-  -- Apply client charge (deduct from client balance)
   IF v_do_client=1 THEN
     UPDATE clients SET balance=balance-NEW.sell_rate WHERE id=NEW.client_id;
     INSERT INTO billing_summary (id,tenant_id,client_id,period,total_sms,total_cost,total_revenue,margin)
-    VALUES (CONCAT(NEW.client_id,'_',DATE_FORMAT(DATE(NEW.submit_time),'%Y%m%d')),
-      NEW.tenant_id, NEW.client_id, DATE(NEW.submit_time),1,NEW.cost,NEW.sell_rate,NEW.sell_rate-NEW.cost)
+    VALUES (CONCAT(NEW.client_id,'_',DATE_FORMAT(IFNULL(DATE(NEW.submit_time),CURDATE()),'%Y%m%d')),
+      IFNULL(NEW.tenant_id,'default'), NEW.client_id, IFNULL(DATE(NEW.submit_time),CURDATE()),
+      1, IF(v_do_supplier=1,NEW.cost,0), NEW.sell_rate, NEW.sell_rate-IF(v_do_supplier=1,NEW.cost,0))
     ON DUPLICATE KEY UPDATE
-      total_sms=total_sms+1, total_cost=total_cost+NEW.cost,
-      total_revenue=total_revenue+NEW.sell_rate, margin=margin+(NEW.sell_rate-NEW.cost), updated_at=NOW();
-  END IF;
-
-  -- Apply supplier cost tracking (record cost when supplier billing condition met)
-  -- v_do_supplier gates when supplier actually bills us (cost column)
-  IF v_do_supplier=0 THEN
-    -- If supplier hasn't billed yet, zero out the cost in summary for now
-    UPDATE billing_summary SET total_cost=total_cost-NEW.cost
-      WHERE id=CONCAT(NEW.client_id,'_',DATE_FORMAT(DATE(NEW.submit_time),'%Y%m%d'));
+      total_sms=total_sms+1,
+      total_cost=total_cost+IF(v_do_supplier=1,NEW.cost,0),
+      total_revenue=total_revenue+NEW.sell_rate,
+      margin=margin+(NEW.sell_rate-IF(v_do_supplier=1,NEW.cost,0)),
+      updated_at=NOW();
   END IF;
 
 END$$

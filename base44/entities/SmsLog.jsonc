@@ -93,6 +93,16 @@
     "sell_rate": {
       "type": "number",
       "default": 0
+    },
+    "client_billed": {
+      "type": "boolean",
+      "default": false,
+      "description": "True once client balance has been deducted for this message \u2014 prevents double-charging"
+    },
+    "supplier_billed": {
+      "type": "boolean",
+      "default": false,
+      "description": "True once supplier cost has been recorded for this message"
     }
   },
   "required": [
